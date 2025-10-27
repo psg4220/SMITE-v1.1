@@ -1,2 +1,4 @@
-# SMITE-v1.1
-SMITE discord bot's job is to make foreign exchange for micro nations possible as well as transferring funds to others
+# SMITE
+
+
+SMITE **(Society for Micronational Interbank Transactions and Exchanges)** is a discord bot that makes foreign exchange for micro nations possible as well as transferring funds to others
