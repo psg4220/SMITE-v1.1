@@ -2,6 +2,7 @@ use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use serenity::model::prelude::UserId;
 use crate::db;
+use uuid::Uuid;
 
 pub struct SwapResult {
     pub swap_id: i64,
@@ -103,21 +104,15 @@ pub async fn execute_swap(
             return Err(format!("Taker has insufficient {} balance", taker_ticker_val));
         }
         
-        // DEDUCT MAKER'S BALANCE IMMEDIATELY (taker will be deducted on accept)
-        // Maker loses their currency
-        db::account::update_balance(&pool, maker_account_id, -maker_amount)
-            .await
-            .map_err(|e| format!("Failed to deduct maker balance: {}", e))?;
-        
-        // Create the swap record (direct insert, no stored procedures)
-        let swap_id = db::swap::insert_swap(
+        // Create the targeted swap (deduction and swap creation handled atomically by procedure)
+        let swap_id = db::swap::create_swap(
             &pool,
             maker_account_id,
-            Some(taker_account_id_final),
             maker_currency_id,
             taker_currency_id,
             maker_amount,
             taker_amount_val,
+            taker_account_id_final,
         ).await
         .map_err(|e| format!("Failed to create swap: {}", e))?;
         
@@ -158,20 +153,26 @@ pub async fn execute_swap(
             status: "pending".to_string()
         })
     } else {
-        // Open swap - taker_id is NULL, anyone can accept
-        // Deduct maker's currency immediately
-        db::account::update_balance(&pool, maker_account_id, -maker_amount)
-            .await
-            .map_err(|e| format!("Failed to deduct maker balance: {}", e))?;
+        // Open swap - taker_id is None, but we have taker_amount and taker_ticker
+        // Get taker's currency by ticker
+        let taker_ticker_str = taker_ticker.ok_or("Taker currency required for open swap".to_string())?;
+        let taker_amount_val = taker_amount.ok_or("Taker amount required for open swap".to_string())?;
         
-        let swap_id = db::swap::insert_swap(
+        let taker_currency = db::currency::get_currency_by_ticker(&pool, guild_id, taker_ticker_str)
+            .await
+            .map_err(|e| format!("Database error: {}", e))?
+            .ok_or(format!("Currency {} not found", taker_ticker_str))?;
+        let taker_currency_id = taker_currency.0;
+        let taker_currency_name = taker_currency.2;
+        
+        // Create the open swap with both currencies and amounts
+        let swap_id = db::swap::create_swap_open(
             &pool,
             maker_account_id,
-            None,  // taker_id is NULL for open swaps
             maker_currency_id,
-            maker_currency_id,
+            taker_currency_id,
             maker_amount,
-            0.0,
+            taker_amount_val,
         ).await
         .map_err(|e| format!("Failed to create open swap: {}", e))?;
         
@@ -181,9 +182,9 @@ pub async fn execute_swap(
             taker_id: None,
             maker_amount: format!("{:.2}", maker_amount),
             maker_currency: maker_currency_name,
-            taker_amount: "?".to_string(),
-            taker_currency: "?".to_string(),
-            status: "open".to_string(),
+            taker_amount: format!("{:.2}", taker_amount_val),
+            taker_currency: taker_currency_name,
+            status: "pending".to_string(),
         })
     }
 }
@@ -258,123 +259,14 @@ pub async fn accept_swap(
             }
         }
         
-        // Get user's account for taker currency
-        let user_taker_account_id = db::account::get_account_id(&pool, user_id, taker_currency_id).await
-            .map_err(|e| format!("Database error: {}", e))?;
+        // Generate unique UUIDs for the two transactions
+        let uuid1 = Uuid::new_v4().to_string();
+        let uuid2 = Uuid::new_v4().to_string();
         
-        let user_taker_account_id_final = if let Some(id) = user_taker_account_id {
-            id
-        } else {
-            db::account::create_account(&pool, user_id, taker_currency_id)
-                .await
-                .map_err(|e| format!("Failed to create user account: {}", e))?
-        };
-        
-        // Get maker's account for their currency
-        let maker_currency_account_id = db::account::get_account_id(&pool, user_id, maker_currency_id).await
-            .map_err(|e| format!("Database error: {}", e))?;
-        
-        let _maker_currency_account_id_final = if let Some(id) = maker_currency_account_id {
-            id
-        } else {
-            db::account::create_account(&pool, user_id, maker_currency_id)
-                .await
-                .map_err(|e| format!("Failed to create user account: {}", e))?
-        };
-        
-        // ATOMIC CHECK: Verify taker has sufficient balance BEFORE making any changes
-        if taker_id_existing.is_some() {
-            // Only check balance for targeted swaps (open swaps have taker_amount = 0)
-            let taker_balance = db::account::get_account_balance(&pool, user_id, taker_currency_id)
-                .await
-                .map_err(|e| format!("Database error: {}", e))?
-                .ok_or("Taker has no account".to_string())?;
-            
-            // Verify taker has sufficient balance
-            if taker_balance < taker_amount {
-                return Err(format!("❌ Insufficient balance. You need {:.2} but only have {:.2}", taker_amount, taker_balance));
-            }
-        }
-        
-        // If this is an OPEN swap (taker_id_existing is None), we need to set the taker
-        if taker_id_existing.is_none() {
-            // For open swaps, deduct from the acceptor (new taker)
-            db::account::update_balance(&pool, user_taker_account_id_final, -taker_amount)
-                .await
-                .map_err(|e| format!("Failed to deduct taker balance: {}", e))?;
-            
-            db::swap::update_swap_with_taker(&pool, id, user_taker_account_id_final, "accepted")
-                .await
-                .map_err(|e| format!("Failed to update swap: {}", e))?;
-        } else {
-            // Targeted swap - deduct from taker's balance NOW (maker was already deducted in execute_swap)
-            db::account::update_balance(&pool, user_taker_account_id_final, -taker_amount)
-                .await
-                .map_err(|e| format!("Failed to deduct taker balance: {}", e))?;
-            
-            // Just update status
-            db::swap::update_swap_status(&pool, id, "accepted")
-                .await
-                .map_err(|e| format!("Failed to update swap status: {}", e))?;
-        }
-        
-        // Credit balances:
-        // User (taker/acceptor) receives maker's currency
-        // Need to get the user's account for maker_currency_id
-        let user_maker_account_id = db::account::get_account_id(&pool, user_id, maker_currency_id).await
-            .map_err(|e| format!("Database error: {}", e))?;
-        
-        let user_maker_account_id_final = if let Some(id) = user_maker_account_id {
-            id
-        } else {
-            db::account::create_account(&pool, user_id, maker_currency_id)
-                .await
-                .map_err(|e| format!("Failed to create user account for maker currency: {}", e))?
-        };
-        
-        db::account::update_balance(&pool, user_maker_account_id_final, maker_amount)
+        // Call procedure to accept swap atomically (handles all balance deductions, credits, and transactions)
+        db::swap::accept_swap(&pool, id, user_id, &uuid1, &uuid2)
             .await
-            .map_err(|e| format!("Failed to credit user with maker currency: {}", e))?;
-        
-        // Maker receives taker's currency
-        // Get the maker's account for taker_currency_id
-        let maker_taker_account_id = db::account::get_account_id(&pool, maker_discord_id, taker_currency_id).await
-            .map_err(|e| format!("Database error: {}", e))?;
-        
-        let maker_taker_account_id_final = if let Some(id) = maker_taker_account_id {
-            id
-        } else {
-            db::account::create_account(&pool, maker_discord_id, taker_currency_id)
-                .await
-                .map_err(|e| format!("Failed to create maker account for taker currency: {}", e))?
-        };
-        
-        db::account::update_balance(&pool, maker_taker_account_id_final, taker_amount)
-            .await
-            .map_err(|e| format!("Failed to credit maker with taker currency: {}", e))?;
-        
-        // Log transactions for the swap (2 transactions total)
-        // Transaction 1: Taker sends taker_currency to Maker
-        let transaction_uuid_1 = uuid::Uuid::new_v4().to_string();
-        db::transaction::create_transaction(
-            &pool,
-            &transaction_uuid_1,
-            user_taker_account_id_final,
-            maker_taker_account_id_final,
-            taker_amount,
-        ).await
-        .map_err(|e| format!("Failed to log transaction 1: {}", e))?;
-        
-        // Transaction 2: Maker sends maker_currency to Taker
-        let transaction_uuid_2 = uuid::Uuid::new_v4().to_string();
-        db::transaction::create_transaction(
-            &pool,
-            &transaction_uuid_2,
-            maker_account_id,
-            user_maker_account_id_final,
-            maker_amount,
-        ).await
-        .map_err(|e| format!("Failed to log transaction 2: {}", e))?;
+            .map_err(|e| e.to_string())?;
         
         // Get currency tickers
         let maker_currency_ticker = db::currency::get_currency_by_id(&pool, maker_currency_id)
@@ -459,28 +351,21 @@ pub async fn deny_swap(
         // SECURITY: Only the maker or the taker can deny a swap
         let is_authorized = (user_id == maker_discord_id) || (taker_discord_id != 0 && user_id == taker_discord_id);
         if !is_authorized {
-            return Err("❌ You are not authorized to deny this swap. Only the maker or taker can deny.".to_string());
+            let error_msg = if taker_discord_id == 0 {
+                "❌ You are not authorized to deny this swap. Only the maker can deny an open swap.".to_string()
+            } else {
+                "❌ You are not authorized to deny this swap. Only the maker or taker can deny a targeted swap.".to_string()
+            };
+            return Err(error_msg);
         }
+        // Call procedure to cancel/deny swap atomically (handles refunds)
+        db::swap::cancel_swap(&pool, id)
+            .await
+            .map_err(|e| format!("Failed to deny swap: {}", e))?;
+        
+        // Extract amounts from swap details for the response
         let maker_amount = swap_details.5;
         let taker_amount = swap_details.6;
-        
-        // Mark swap as cancelled
-        db::swap::update_swap_status(&pool, id, "cancelled")
-            .await
-            .map_err(|e| format!("Failed to cancel swap: {}", e))?;
-        
-        // REFUND BALANCES
-        // Maker gets their currency back
-        db::account::update_balance(&pool, maker_account_id, maker_amount)
-            .await
-            .map_err(|e| format!("Failed to refund maker balance: {}", e))?;
-        
-        // If targeted swap, refund taker too
-        if let Some(taker_account_id) = taker_id_existing {
-            db::account::update_balance(&pool, taker_account_id, taker_amount)
-                .await
-                .map_err(|e| format!("Failed to refund taker balance: {}", e))?;
-        }
         
         // Get currency names
         let maker_currency_id = swap_details.3;

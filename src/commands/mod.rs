@@ -41,17 +41,38 @@ pub async fn handle_message(ctx: &Context, msg: &Message) {
         let error_msg = e.to_string();
         eprintln!("❌ Error executing command {}: {}", command, error_msg);
         
-        // Log specific error types for debugging
-        if error_msg.contains("429") || error_msg.contains("rate limit") {
-            eprintln!("   ⚠️  This appears to be a Discord rate limit issue");
+        // Extract clean error message from database errors
+        // Pattern: "error returned from database: 1644 (45000): Insufficient balance to accept swap"
+        let clean_error = if error_msg.contains("error returned from database:") {
+            // Find the last colon, everything after it is the actual error message
+            if let Some(last_colon) = error_msg.rfind(": ") {
+                error_msg[last_colon + 2..].trim().to_string()
+            } else {
+                error_msg.clone()
+            }
+        } else {
+            error_msg.clone()
+        };
+        
+        // Determine error type and create user-friendly message
+        let user_message = if error_msg.contains("429") || error_msg.contains("rate limit") {
+            "⚠️ **Rate Limited**: Discord is rate limiting us. Please try again in a moment.".to_string()
         } else if error_msg.contains("HTTP request") {
-            eprintln!("   ⚠️  Network/HTTP error - Could be Discord or connection issue");
-        } else if error_msg.contains("Database") || error_msg.contains("database") {
-            eprintln!("   ⚠️  Database error - Check database connection");
-        } else if error_msg.contains("not found") || error_msg.contains("404") {
-            eprintln!("   ⚠️  Resource not found - User/channel/message may have been deleted");
-        } else if error_msg.contains("Permission") || error_msg.contains("permission") {
-            eprintln!("   ⚠️  Permission denied - Bot may lack required Discord permissions");
-        }
+            "⚠️ **Network Error**: Having trouble connecting to Discord. Please try again.".to_string()
+        } else if clean_error.len() > 0 {
+            format!("❌ {}", clean_error)
+        } else {
+            "❌ An error occurred while executing the command.".to_string()
+        };
+
+        // Send error to user as Discord message embed
+        let embed = serenity::builder::CreateEmbed::default()
+            .title("Command Error")
+            .description(user_message)
+            .color(0xff0000);
+
+        let _ = msg.channel_id
+            .send_message(ctx, serenity::builder::CreateMessage::default().embed(embed))
+            .await;
     }
 }

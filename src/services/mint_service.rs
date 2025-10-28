@@ -35,15 +35,42 @@ pub async fn execute_mint(
             .clone()
     };
 
-    // Look up currency by ticker and guild
-    let currency_id = db::currency::get_currency_by_guild(&pool, guild_id as i64)
+    // Look up currency by ticker - must belong to current guild for security
+    let currency_id = db::currency::get_currency_by_ticker(&pool, guild_id as i64, currency_ticker)
         .await
         .map_err(|e| format!("Database error: {}", e))?
+        .map(|(id, _, _)| id)
         .ok_or(format!(
-            "No currency found in this guild. Please create one with $cc \"Name\" {}",
-            currency_ticker
-        ))?
-        .0;
+            "Currency {} not found in this guild. Please create one with $cc \"Name\" {}",
+            currency_ticker, currency_ticker
+        ))?;
+    
+    // SECURITY: Verify the currency and check permissions
+    let currency_details = db::currency::get_currency_by_id(&pool, currency_id)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?
+        .ok_or("Currency not found".to_string())?;
+    
+    let currency_guild_id = currency_details.1;
+    
+    // If minting a currency from another guild, verify "Minter" role in that guild
+    if currency_guild_id != guild_id as i64 {
+        // This is a cross-guild mint attempt - check Minter role in target guild
+        let target_guild_id = serenity::model::prelude::GuildId::new(currency_guild_id as u64);
+        let target_user_id = serenity::model::prelude::UserId::new(msg.author.id.get());
+        
+        // Get user's roles in the target guild using permission_service
+        let target_roles = permission_service::get_user_role_names(ctx, target_guild_id, target_user_id)
+            .await?;
+        
+        // Check if user has Minter role in the target guild (Admin also counts)
+        let has_permission = target_roles.contains(&"Minter".to_string()) 
+            || target_roles.contains(&"Admin".to_string());
+        
+        if !has_permission {
+            return Err("❌ You must have the 'Minter' or 'Admin' role in the target guild to mint that currency!".to_string());
+        }
+    }
 
     // Get or create account
     let account_id = match db::account::get_account_id(&pool, user_id, currency_id).await {

@@ -1,32 +1,5 @@
 use sqlx::mysql::MySqlPool;
 
-/// Insert a new swap into the database (direct insert, no procedures)
-/// Returns the swap ID
-pub async fn insert_swap(
-    pool: &MySqlPool,
-    maker_account_id: i64,
-    taker_account_id: Option<i64>,
-    maker_currency_id: i64,
-    taker_currency_id: i64,
-    maker_amount: f64,
-    taker_amount: f64,
-) -> Result<i64, sqlx::Error> {
-    let result = sqlx::query(
-        "INSERT INTO currency_swap (maker_id, taker_id, maker_currency_id, taker_currency_id, maker_amount, taker_amount, status) 
-         VALUES (?, ?, ?, ?, ?, ?, 'pending')"
-    )
-    .bind(maker_account_id)
-    .bind(taker_account_id)
-    .bind(maker_currency_id)
-    .bind(taker_currency_id)
-    .bind(maker_amount)
-    .bind(taker_amount)
-    .execute(pool)
-    .await?;
-
-    Ok(result.last_insert_id() as i64)
-}
-
 /// Get a swap by ID (direct query)
 /// Returns: (id, maker_id, taker_id, maker_currency_id, taker_currency_id, maker_amount, taker_amount, status)
 pub async fn get_swap_by_id(
@@ -86,43 +59,7 @@ pub async fn get_open_swaps(
     .await
 }
 
-/// Update swap status (direct query)
-pub async fn update_swap_status(
-    pool: &MySqlPool,
-    swap_id: i64,
-    new_status: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "UPDATE currency_swap SET status = ? WHERE id = ?"
-    )
-    .bind(new_status)
-    .bind(swap_id)
-    .execute(pool)
-    .await?;
-
-    Ok(())
-}
-
-/// Update swap with taker (for accepting an open swap)
-pub async fn update_swap_with_taker(
-    pool: &MySqlPool,
-    swap_id: i64,
-    taker_account_id: i64,
-    new_status: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "UPDATE currency_swap SET taker_id = ?, status = ? WHERE id = ?"
-    )
-    .bind(taker_account_id)
-    .bind(new_status)
-    .bind(swap_id)
-    .execute(pool)
-    .await?;
-
-    Ok(())
-}
-
-/// Create a new currency swap
+/// Create a new currency swap (targeted swap)
 pub async fn create_swap(
     pool: &MySqlPool,
     maker_id: i64,
@@ -130,20 +67,25 @@ pub async fn create_swap(
     taker_currency_id: i64,
     maker_amount: f64,
     taker_amount: f64,
+    taker_id: i64,
 ) -> Result<i64, sqlx::Error> {
+    // Acquire a single connection to maintain session variables
+    let mut conn = pool.acquire().await?;
+
     sqlx::query(
-        "CALL sp_create_swap(?, ?, ?, ?, ?, @swap_id)"
+        "CALL sp_create_swap(?, ?, ?, ?, ?, ?)"
     )
     .bind(maker_id)
     .bind(maker_currency_id)
     .bind(taker_currency_id)
     .bind(maker_amount)
     .bind(taker_amount)
-    .execute(pool)
+    .bind(taker_id)
+    .execute(&mut *conn)
     .await?;
 
-    let swap_id: i64 = sqlx::query_scalar("SELECT @swap_id")
-        .fetch_one(pool)
+    let swap_id: i64 = sqlx::query_scalar("SELECT CAST(@swap_id AS SIGNED)")
+        .fetch_one(&mut *conn)
         .await?;
 
     Ok(swap_id)
@@ -158,19 +100,22 @@ pub async fn create_swap_open(
     maker_amount: f64,
     taker_amount: f64,
 ) -> Result<i64, sqlx::Error> {
+    // Acquire a single connection to maintain session variables
+    let mut conn = pool.acquire().await?;
+
     sqlx::query(
-        "CALL sp_create_swap_open(?, ?, ?, ?, ?, @swap_id)"
+        "CALL sp_create_swap_open(?, ?, ?, ?, ?)"
     )
     .bind(maker_id)
     .bind(maker_currency_id)
     .bind(taker_currency_id)
     .bind(maker_amount)
     .bind(taker_amount)
-    .execute(pool)
+    .execute(&mut *conn)
     .await?;
 
-    let swap_id: i64 = sqlx::query_scalar("SELECT @swap_id")
-        .fetch_one(pool)
+    let swap_id: i64 = sqlx::query_scalar("SELECT CAST(@swap_id AS SIGNED)")
+        .fetch_one(&mut *conn)
         .await?;
 
     Ok(swap_id)
@@ -181,10 +126,14 @@ pub async fn accept_swap(
     pool: &MySqlPool,
     swap_id: i64,
     taker_id: i64,
+    uuid1: &str,
+    uuid2: &str,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("CALL sp_accept_swap(?, ?)")
+    sqlx::query("CALL sp_accept_swap(?, ?, ?, ?)")
         .bind(swap_id)
         .bind(taker_id)
+        .bind(uuid1)
+        .bind(uuid2)
         .execute(pool)
         .await?;
 

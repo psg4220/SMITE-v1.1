@@ -1,6 +1,7 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use crate::services::transaction_service;
+use crate::utils::page::Page;
 
 pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), String> {
     if args.is_empty() {
@@ -41,10 +42,10 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
 
     match args[0].to_lowercase().as_str() {
         "list" => {
-            let result = transaction_service::get_transaction_list(&pool, user_id)
+            let pages = transaction_service::create_transaction_pages(&pool, user_id)
                 .await?;
 
-            if result.is_empty {
+            if pages.is_empty() {
                 let embed = serenity::builder::CreateEmbed::default()
                     .title("📋 Transaction History")
                     .description("No transactions found")
@@ -57,8 +58,33 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
                 return Ok(());
             }
 
+            // Check if page number is specified (e.g., "p2" or "2")
+            let mut page_num = 1;
+            if args.len() > 1 {
+                let page_arg = args[1].to_lowercase();
+                let page_str = if page_arg.starts_with('p') {
+                    &page_arg[1..]
+                } else {
+                    &page_arg
+                };
+                
+                page_num = page_str.parse::<usize>()
+                    .map_err(|_| "Invalid page number. Use: `$transaction list` or `$transaction list p2`".to_string())?;
+            }
+
+            // Validate page number
+            if page_num < 1 || page_num > pages.len() {
+                return Err(format!("❌ Page {} does not exist. Available pages: 1-{}", page_num, pages.len()));
+            }
+
+            // Create pagination object and set to requested page
+            let mut pagination = Page::new(pages);
+            if page_num > 1 {
+                pagination.current_page = page_num - 1;
+            }
+
             msg.channel_id
-                .send_message(ctx, serenity::builder::CreateMessage::default().content(result.formatted_message))
+                .send_message(ctx, pagination.create_message())
                 .await
                 .map_err(|e| e.to_string())?;
         }

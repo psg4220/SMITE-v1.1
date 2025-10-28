@@ -9,7 +9,7 @@ pub struct PermissionContext {
 }
 
 /// Get user's role names from a guild
-async fn get_user_role_names(
+pub async fn get_user_role_names(
     ctx: &Context,
     guild_id: GuildId,
     user_id: UserId,

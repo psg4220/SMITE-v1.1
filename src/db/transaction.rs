@@ -98,10 +98,9 @@ pub async fn get_user_transactions(
     
     // Build a query that checks if sender_id or receiver_id match any of the user's account IDs
     let mut query_str = String::from(
-        "SELECT t.sender_id, t.receiver_id, CAST(t.amount AS DOUBLE), DATE_FORMAT(t.date_created, '%Y-%m-%d %H:%i:%s'), t.uuid, c.ticker \
+        "SELECT t.sender_id, t.receiver_id, CAST(t.amount AS DOUBLE), DATE_FORMAT(t.date_created, '%Y-%m-%d %H:%i:%s'), t.uuid, \
+         COALESCE((SELECT c.ticker FROM currency c JOIN account a ON a.currency_id = c.id WHERE a.id = t.sender_id LIMIT 1), '') AS ticker \
          FROM transaction t \
-         JOIN account a ON t.sender_id = a.id OR t.receiver_id = a.id \
-         JOIN currency c ON a.currency_id = c.id \
          WHERE "
     );
     
@@ -117,7 +116,7 @@ pub async fn get_user_transactions(
         .collect();
     
     query_str.push_str(&or_conditions.join(""));
-    query_str.push_str(" GROUP BY t.uuid ORDER BY t.date_created DESC LIMIT ?");
+    query_str.push_str(" ORDER BY t.date_created DESC LIMIT ?");
     
     let mut query = sqlx::query_as::<_, (i64, i64, f64, String, String, String)>(&query_str);
     
