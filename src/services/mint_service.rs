@@ -35,15 +35,12 @@ pub async fn execute_mint(
             .clone()
     };
 
-    // Look up currency by ticker - must belong to current guild for security
-    let currency_id = db::currency::get_currency_by_ticker(&pool, guild_id as i64, currency_ticker)
+    // Look up currency by ticker
+    let currency_id = db::currency::get_currency_by_ticker(&pool, currency_ticker)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .map(|(id, _, _)| id)
-        .ok_or(format!(
-            "Currency {} not found in this guild. Please create one with $cc \"Name\" {}",
-            currency_ticker, currency_ticker
-        ))?;
+        .ok_or_else(|| format!("Currency '{}' not found", currency_ticker))?;
     
     // SECURITY: Verify the currency and check permissions
     let currency_details = db::currency::get_currency_by_id(&pool, currency_id)

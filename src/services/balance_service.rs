@@ -24,9 +24,8 @@ pub async fn get_balance(
     };
     
     let (currency_id, ticker) = if let Some(ticker) = currency_ticker {
-        // If ticker is specified, look it up globally (works in DMs and guilds)
-        let guild_id = msg.guild_id.map(|id| id.get() as i64).unwrap_or(0);
-        let currency_data = db::currency::get_currency_by_ticker(&pool, guild_id, ticker)
+        // Look up currency by ticker (searches across all guilds)
+        let currency_data = db::currency::get_currency_by_ticker(&pool, ticker)
             .await
             .map_err(|e| format!("Database error: {}", e))?
             .ok_or(format!("Currency {} not found", ticker))?;

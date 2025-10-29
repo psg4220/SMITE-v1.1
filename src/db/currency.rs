@@ -38,7 +38,7 @@ pub async fn get_currency_by_id(pool: &MySqlPool, currency_id: i64) -> Result<Op
 }
 
 /// Get currency by ticker (searches across all guilds)
-pub async fn get_currency_by_ticker(pool: &MySqlPool, _guild_id: i64, ticker: &str) -> Result<Option<(i64, String, String)>, sqlx::Error> {
+pub async fn get_currency_by_ticker(pool: &MySqlPool, ticker: &str) -> Result<Option<(i64, String, String)>, sqlx::Error> {
     sqlx::query_as::<_, (i64, String, String)>(
         "SELECT id, name, ticker FROM currency WHERE UPPER(ticker) = UPPER(?)"
     )

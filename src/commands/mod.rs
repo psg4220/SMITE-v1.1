@@ -5,10 +5,23 @@ pub mod swap;
 pub mod mint;
 pub mod create_currency;
 pub mod transaction;
+pub mod price;
 
 
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+use lazy_static::lazy_static;
 use serenity::model::channel::Message;
+use serenity::model::id::UserId;
 use serenity::prelude::Context;
+use tokio::sync::Mutex;
+
+lazy_static::lazy_static! {
+    static ref COMMAND_COOLDOWNS: Mutex<HashMap<(UserId, String), u64>> = 
+        Mutex::new(HashMap::new());
+}
+
+const COOLDOWN_SECONDS: u64 = 5;
 
 pub async fn handle_message(ctx: &Context, msg: &Message) {
     if msg.author.bot {
@@ -16,6 +29,47 @@ pub async fn handle_message(ctx: &Context, msg: &Message) {
     }
 
     let content = &msg.content;
+    let user_id = msg.author.id;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    // Check rate limit before processing command
+    if let Some(command) = content.split_whitespace().next() {
+        let command_str = command.to_string();
+        let key = (user_id, command_str);
+        
+        // Use a block to limit the scope of the lock
+        let should_cooldown = {
+            let mut cooldowns = COMMAND_COOLDOWNS.lock().await;
+            if let Some(&last_time) = cooldowns.get(&key) {
+                let elapsed = now.saturating_sub(last_time);
+                if elapsed < COOLDOWN_SECONDS {
+                    Some(COOLDOWN_SECONDS - elapsed)
+                } else {
+                    cooldowns.insert(key.clone(), now);
+                    None
+                }
+            } else {
+                cooldowns.insert(key.clone(), now);
+                None
+            }
+        };
+        
+        if let Some(remaining) = should_cooldown {
+            let _ = msg.channel_id.send_message(
+                ctx,
+                serenity::builder::CreateMessage::default().embed(
+                    serenity::builder::CreateEmbed::default()
+                        .title("Command Cooldown")
+                        .description(format!("⏳ Please wait {} seconds before using this command again.", remaining))
+                        .color(0xffa500)
+                )
+            ).await;
+            return;
+        }
+    }
     
     // Parse command and arguments
     let parts: Vec<&str> = content.split_whitespace().collect();
@@ -34,6 +88,7 @@ pub async fn handle_message(ctx: &Context, msg: &Message) {
         "$mint" | "$print" | "$issue" => mint::execute(ctx, msg, args).await,
         "$create_currency" | "$cc" => create_currency::execute(ctx, msg, args).await,
         "$transaction" | "$tr" => transaction::execute(ctx, msg, args).await,
+        "$price" => price::execute(ctx, msg, args).await,
         _ => return,
     };
 

@@ -3,18 +3,23 @@ use serenity::prelude::Context;
 use crate::services::send_service;
 
 pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), String> {
-    if args.len() < 3 {
+    if args.len() < 2 {
         let help_embed = serenity::builder::CreateEmbed::default()
             .title("💸 Send Command")
-            .description("Transfer currency to another user")
-            .field("Usage", "`$send <@user or id> <amount> <currency>`", false)
+            .description("Transfer currency to one or more users")
+            .field("Usage", 
+                "`$send <@user or id> <amount> <currency>`\n\
+                 `$send (@user1 @user2 ... @userN) <amount> <currency>`",
+                false)
             .field("Examples",
-                "`$send @Alice 100 BTC`\n\
-                 `$send 123456789 50 USD`",
+                "`$send @Alice 100 BTC` (send to one user)\n\
+                 `$send (@Alice @Bob @Charlie) 50 USD` (send to multiple users)\n\
+                 `$send (@Alice 123456789 @Bob) 75 ETH` (mixed IDs and mentions)",
                 false)
             .field("Notes",
                 "• Works in guilds and DMs\n\
-                 • Specify user by @mention or Discord ID\n\
+                 • For multiple users, wrap them in parentheses: `(@user1 @user2 ...)`\n\
+                 • Each user receives the same amount\n\
                  • Amount must be positive",
                 false)
             .color(0x00ff00);
@@ -26,33 +31,128 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
         return Ok(());
     }
 
-    // Parse receiver ID from mention or raw ID
-    let receiver_id = parse_user_id(args[0])?;
+    let mut recipients = Vec::new();
+    let mut amount_idx = 0;
     
-    // Parse amount
-    let amount: f64 = args[1].parse()
-        .map_err(|_| "Invalid amount".to_string())?;
+    // Check if first argument starts with '(' for multiple recipients
+    if args[0].starts_with('(') {
+        // Multiple recipients mode: parse until we find ')'
+        let mut found_end = false;
+        for (idx, arg) in args.iter().enumerate() {
+            let clean_arg = if idx == 0 {
+                arg.trim_start_matches('(').trim()
+            } else {
+                arg.trim()
+            };
+            
+            let clean_arg = if clean_arg.ends_with(')') {
+                found_end = true;
+                clean_arg.trim_end_matches(')').trim()
+            } else {
+                clean_arg
+            };
+            
+            if !clean_arg.is_empty() {
+                match parse_user_id(clean_arg) {
+                    Ok(user_id) => recipients.push(user_id),
+                    Err(_) => return Err(format!("❌ Invalid user ID or mention: {}", clean_arg)),
+                }
+            }
+            
+            if found_end {
+                amount_idx = idx + 1;
+                break;
+            }
+        }
+        
+        if !found_end {
+            return Err("❌ Missing closing parenthesis for recipients list".to_string());
+        }
+    } else {
+        // Single recipient mode
+        match parse_user_id(args[0]) {
+            Ok(user_id) => recipients.push(user_id),
+            Err(e) => return Err(format!("❌ Invalid recipient: {}", e)),
+        }
+        amount_idx = 1;
+    }
+    
+    // Validate we have at least one recipient
+    if recipients.is_empty() {
+        return Err("❌ Please specify at least one recipient".to_string());
+    }
+    
+    // Parse amount and currency
+    if amount_idx + 1 >= args.len() {
+        return Err("❌ Please specify amount and currency".to_string());
+    }
+    
+    let amount: f64 = args[amount_idx].parse()
+        .map_err(|_| "❌ Invalid amount".to_string())?;
     
     if amount <= 0.0 {
-        msg.reply(ctx, "Amount must be positive").await
-            .map_err(|e| e.to_string())?;
-        return Ok(());
+        return Err("❌ Amount must be positive".to_string());
     }
 
-    let currency_ticker = args[2].to_uppercase();
+    let currency_ticker = args[amount_idx + 1].to_uppercase();
 
-    match send_service::execute_send(ctx, msg, receiver_id, amount, &currency_ticker).await {
-        Ok(result) => {
-            let embed = send_service::create_send_embed(&result);
-            msg.channel_id
-                .send_message(ctx, serenity::builder::CreateMessage::default().embed(embed))
-                .await
-                .map_err(|e| e.to_string())?;
+    // Process each recipient and collect results
+    let mut successful_recipients = Vec::new();
+    let mut failed_recipients = Vec::new();
+    let mut total_sent = 0.0;
+    
+    for recipient_id in recipients {
+        match send_service::execute_send(ctx, msg, recipient_id, amount, &currency_ticker).await {
+            Ok(_result) => {
+                successful_recipients.push(recipient_id);
+                total_sent += amount;
+            }
+            Err(e) => {
+                failed_recipients.push((recipient_id, e));
+            }
         }
-        Err(e) => {
-            msg.reply(ctx, format!("❌ Transfer failed: {}", e)).await
-                .map_err(|e| e.to_string())?;
-        }
+    }
+    
+    // Send success embed if any transfers succeeded
+    if !successful_recipients.is_empty() {
+        let result = send_service::SendResult {
+            sender_id: msg.author.id.get() as i64,
+            receiver_ids: successful_recipients.clone(),
+            amount: format!("{:.2}", amount),
+            currency_ticker: currency_ticker.clone(),
+            total_amount: format!("{:.2}", total_sent),
+        };
+        
+        let embed = send_service::create_send_embed(&result);
+        msg.channel_id
+            .send_message(ctx, serenity::builder::CreateMessage::default().embed(embed))
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    
+    // If any transfers failed, report them in an embed
+    if !failed_recipients.is_empty() {
+        let title = if successful_recipients.is_empty() {
+            "❌ All Transfers Failed"
+        } else {
+            "⚠️ Some Transfers Failed"
+        };
+
+        let description = if successful_recipients.is_empty() {
+            "All transfers could not be completed".to_string()
+        } else {
+            format!("Completed {} of {} transfers:", successful_recipients.len(), successful_recipients.len() + failed_recipients.len())
+        };
+
+        let embed = serenity::builder::CreateEmbed::default()
+            .title(title)
+            .description(description)
+            .color(0xff3333); // Red color for errors
+
+        msg.channel_id
+            .send_message(ctx, serenity::builder::CreateMessage::default().embed(embed))
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
     Ok(())

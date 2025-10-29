@@ -16,9 +16,6 @@ pub struct SwapResult {
 }
 
 pub struct AcceptDenyResult {
-    pub success_count: usize,
-    pub fail_count: usize,
-    pub message: String,
     pub swap_id: i64,
     pub maker_id: i64,
     pub taker_id: i64,
@@ -49,7 +46,7 @@ pub async fn execute_swap(
     };
     
     // Get maker's currency by ticker
-    let maker_currency = db::currency::get_currency_by_ticker(&pool, guild_id, maker_ticker)
+    let maker_currency = db::currency::get_currency_by_ticker(&pool, maker_ticker)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or(format!("Currency {} not found", maker_ticker))?;
@@ -75,7 +72,7 @@ pub async fn execute_swap(
     // If taker is specified, this is a targeted swap
     if let (Some(taker_id_val), Some(taker_amount_val), Some(taker_ticker_val)) = (taker_id, taker_amount, taker_ticker) {
         // Get taker's currency by ticker
-        let taker_currency = db::currency::get_currency_by_ticker(&pool, guild_id, taker_ticker_val)
+        let taker_currency = db::currency::get_currency_by_ticker(&pool, taker_ticker_val)
             .await
             .map_err(|e| format!("Database error: {}", e))?
             .ok_or(format!("Currency {} not found", taker_ticker_val))?;
@@ -158,7 +155,7 @@ pub async fn execute_swap(
         let taker_ticker_str = taker_ticker.ok_or("Taker currency required for open swap".to_string())?;
         let taker_amount_val = taker_amount.ok_or("Taker amount required for open swap".to_string())?;
         
-        let taker_currency = db::currency::get_currency_by_ticker(&pool, guild_id, taker_ticker_str)
+        let taker_currency = db::currency::get_currency_by_ticker(&pool, taker_ticker_str)
             .await
             .map_err(|e| format!("Database error: {}", e))?
             .ok_or(format!("Currency {} not found", taker_ticker_str))?;
@@ -280,10 +277,27 @@ pub async fn accept_swap(
             .map(|c| c.3)
             .unwrap_or_else(|| "???".to_string());
         
+        // Determine canonical order (alphabetically by ticker)
+        let (base_currency_id, quote_currency_id, base_amount, quote_amount) = 
+            if maker_currency_ticker <= taker_currency_ticker {
+                (maker_currency_id, taker_currency_id, maker_amount, taker_amount)
+            } else {
+                (taker_currency_id, maker_currency_id, taker_amount, maker_amount)
+            };
+        
+        // Calculate price (quote_amount / base_amount)
+        let price = if base_amount != 0.0 {
+            quote_amount / base_amount
+        } else {
+            0.0
+        };
+        
+        // Log the trading price to tradelog
+        let _ = db::tradelog::add_price_log(&pool, base_currency_id, quote_currency_id, price)
+            .await
+            .map_err(|e| format!("Failed to log price: {}", e));
+        
         Ok((AcceptDenyResult {
-            success_count: 1,
-            fail_count: 0,
-            message: format!("✅ Swap `{}` accepted! Balances have been credited.", id),
             swap_id: id,
             maker_id: maker_discord_id,
             taker_id: user_id,
@@ -291,6 +305,7 @@ pub async fn accept_swap(
             taker_offer: format!("{:.2} {}", taker_amount, taker_currency_ticker),
             status: "accepted".to_string(),
         }, Some(msg.id.get())))
+
     } else {
         // Accept all pending swaps - not typically used, but keep for compatibility
         Err("Please specify a swap ID with `$swap accept <id>`".to_string())
@@ -388,9 +403,6 @@ pub async fn deny_swap(
         };
         
         Ok((AcceptDenyResult {
-            success_count: 1,
-            fail_count: 0,
-            message: format!("❌ Swap `{}` denied! Balances have been refunded.", id),
             swap_id: id,
             maker_id: maker_discord_id,
             taker_id: taker_discord_id_final,

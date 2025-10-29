@@ -1,6 +1,6 @@
 -- Create all database tables
 
-DELIMITER //
+SET FOREIGN_KEY_CHECKS=0;
 
 CREATE TABLE IF NOT EXISTS currency (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS currency (
     name VARCHAR(64) UNIQUE NOT NULL,
     ticker VARCHAR(16) UNIQUE NOT NULL,
     date_created DATETIME DEFAULT CURRENT_TIMESTAMP
-) //
+);
 
 CREATE TABLE IF NOT EXISTS account (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -19,16 +19,15 @@ CREATE TABLE IF NOT EXISTS account (
     date_updated DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
     UNIQUE KEY uk_account_discord_currency (discord_id, currency_id),
+    INDEX idx_account_currency (currency_id),
+    INDEX idx_account_discord (discord_id),
     
     CONSTRAINT fk_account_currency
         FOREIGN KEY (currency_id)
         REFERENCES currency(id)
         ON DELETE RESTRICT
         ON UPDATE CASCADE
-) //
-
-CREATE INDEX IF NOT EXISTS idx_account_currency ON account(currency_id) //
-CREATE INDEX IF NOT EXISTS idx_account_discord ON account(discord_id) //
+);
 
 CREATE TABLE IF NOT EXISTS currency_swap (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -41,6 +40,10 @@ CREATE TABLE IF NOT EXISTS currency_swap (
     status ENUM('pending','accepted','completed','cancelled','expired') DEFAULT 'pending',
     date_created DATETIME DEFAULT CURRENT_TIMESTAMP,
     date_updated DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_swap_status (status),
+    INDEX idx_swap_maker (maker_id),
+    INDEX idx_swap_taker (taker_id),
     
     CONSTRAINT fk_swap_maker
         FOREIGN KEY (maker_id)
@@ -58,13 +61,7 @@ CREATE TABLE IF NOT EXISTS currency_swap (
         FOREIGN KEY (taker_currency_id)
         REFERENCES currency(id)
         ON DELETE RESTRICT ON UPDATE CASCADE
-) //
-
-CREATE INDEX IF NOT EXISTS idx_swap_status ON currency_swap(status) //
-
-CREATE INDEX IF NOT EXISTS idx_swap_maker ON currency_swap(maker_id) //
-
-CREATE INDEX IF NOT EXISTS idx_swap_taker ON currency_swap(taker_id) //
+);
 
 CREATE TABLE IF NOT EXISTS transaction (
     uuid CHAR(36) PRIMARY KEY,
@@ -72,6 +69,9 @@ CREATE TABLE IF NOT EXISTS transaction (
     receiver_id BIGINT NOT NULL,
     amount DECIMAL(18,8) NOT NULL,
     date_created DATETIME DEFAULT CURRENT_TIMESTAMP,
+    
+    INDEX idx_transaction_sender (sender_id),
+    INDEX idx_transaction_receiver (receiver_id),
     
     CONSTRAINT fk_transaction_sender
         FOREIGN KEY (sender_id)
@@ -81,24 +81,25 @@ CREATE TABLE IF NOT EXISTS transaction (
         FOREIGN KEY (receiver_id)
         REFERENCES account(id)
         ON DELETE RESTRICT ON UPDATE CASCADE
-) //
-
-CREATE INDEX IF NOT EXISTS idx_transaction_sender ON transaction(sender_id) //
-
-CREATE INDEX IF NOT EXISTS idx_transaction_receiver ON transaction(receiver_id) //
+);
 
 CREATE TABLE IF NOT EXISTS tradelog (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    currency_id BIGINT NOT NULL,
+    base_currency_id BIGINT NOT NULL,
+    quote_currency_id BIGINT NOT NULL,
     price DECIMAL(18,8) NOT NULL,
     date_created DATETIME DEFAULT CURRENT_TIMESTAMP,
     
-    CONSTRAINT fk_tradelog_currency
-        FOREIGN KEY (currency_id)
+    INDEX idx_tradelog_pair_date (base_currency_id, quote_currency_id, date_created DESC),
+    
+    CONSTRAINT fk_tradelog_base_currency
+        FOREIGN KEY (base_currency_id)
+        REFERENCES currency(id)
+        ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT fk_tradelog_quote_currency
+        FOREIGN KEY (quote_currency_id)
         REFERENCES currency(id)
         ON DELETE RESTRICT ON UPDATE CASCADE
-) //
+);
 
-CREATE INDEX IF NOT EXISTS idx_currency_date ON tradelog(currency_id, date_created) //
-
-DELIMITER ;
+SET FOREIGN_KEY_CHECKS=1;
