@@ -1,5 +1,8 @@
-# SMITE
+<p align="center">
+  <img width="500" height="500" alt="SMITE" src="https://github.com/user-attachments/assets/c0c3be07-95a2-4fdb-bce2-d3da719a96d5" />
+</p>
 
+# SMITE
 
 SMITE **(Society for Micronational Interbank Transactions and Exchanges)** is a discord bot that makes foreign exchange for micro nations possible as well as transferring funds to others. 
 
