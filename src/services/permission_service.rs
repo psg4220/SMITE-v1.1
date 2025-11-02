@@ -1,6 +1,7 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use serenity::model::prelude::{GuildId, UserId};
+use tracing::debug;
 
 pub struct PermissionContext {
     pub user_id: u64,
@@ -14,11 +15,17 @@ pub async fn get_user_role_names(
     guild_id: GuildId,
     user_id: UserId,
 ) -> Result<Vec<String>, String> {
+    debug!("Getting roles for user {} in guild {}", user_id, guild_id);
+    
     // Fetch Member via HTTP API
-    let member = guild_id
-        .member(&ctx.http, user_id)
-        .await
-        .map_err(|e| format!("Failed to get member: {}", e))?;
+    let member = match guild_id.member(&ctx.http, user_id).await {
+        Ok(m) => m,
+        Err(e) => {
+            // If user is not a member of this guild, return empty roles
+            debug!("User {} is not a member of guild {}: {}", user_id, guild_id, e);
+            return Ok(Vec::new());
+        }
+    };
 
     // Try to get guild roles from cache
     if let Some(guild) = guild_id.to_guild_cached(&ctx.cache) {
@@ -29,6 +36,7 @@ pub async fn get_user_role_names(
             .map(|role| role.name.clone())
             .collect();
 
+        debug!("User {} roles in guild {} (from cache): {:?}", user_id, guild_id, roles);
         return Ok(roles);
     }
 
@@ -43,6 +51,8 @@ pub async fn get_user_role_names(
         .filter_map(|rid| guild.roles.get(rid))
         .map(|role| role.name.clone())
         .collect();
+
+    debug!("User {} roles in guild {} (from API): {:?}", user_id, guild_id, roles);
 
     Ok(roles)
 }
@@ -84,8 +94,9 @@ pub async fn check_permission(
         user_roles.push("Admin".to_string());
     }
 
-    // Debug: print roles
-    // println!("User roles: {:?}", user_roles);
+    // Debug: log user roles
+    debug!("User roles: {:?}", user_roles);
+    
     // Check if user has "Admin" role - if so, they automatically pass
     if user_roles.contains(&"Admin".to_string()) {
         return Ok(PermissionContext {

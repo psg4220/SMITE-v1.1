@@ -65,8 +65,25 @@ pub async fn execute_swap(
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or("Maker has no account".to_string())?;
     
-    if maker_balance < maker_amount {
-        return Err(format!("Maker has insufficient {} balance", maker_ticker));
+    // Calculate tax on maker's amount
+    let maker_tax_percentage = db::tax::get_tax_percentage(&pool, maker_currency_id)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?
+        .unwrap_or(0);
+    
+    let maker_tax_amount = if maker_tax_percentage > 0 {
+        (maker_amount * maker_tax_percentage as f64) / 100.0
+    } else {
+        0.0
+    };
+    
+    let maker_total_deduction = maker_amount + maker_tax_amount;
+    
+    if maker_balance < maker_total_deduction {
+        return Err(format!(
+            "Maker has insufficient {} balance. Required: {:.8} ({:.8} + {:.8} tax), Available: {:.8}",
+            maker_ticker, maker_total_deduction, maker_amount, maker_tax_amount, maker_balance
+        ));
     }
     
     // If taker is specified, this is a targeted swap
@@ -112,6 +129,16 @@ pub async fn execute_swap(
             taker_account_id_final,
         ).await
         .map_err(|e| format!("Failed to create swap: {}", e))?;
+        
+        // Deduct tax from maker if applicable
+        if maker_tax_amount > 0.0 {
+            db::account::update_balance(&pool, maker_account_id, -maker_tax_amount).await
+                .map_err(|e| format!("Failed to deduct maker tax: {}", e))?;
+            
+            db::tax::add_tax(&pool, maker_currency_id, maker_tax_amount)
+                .await
+                .map_err(|e| format!("Failed to record tax: {}", e))?;
+        }
         
         // Send DM to taker if in mutual guild
         let taker_user_id = UserId::new(taker_id_val as u64);
@@ -172,6 +199,16 @@ pub async fn execute_swap(
             taker_amount_val,
         ).await
         .map_err(|e| format!("Failed to create open swap: {}", e))?;
+        
+        // Deduct tax from maker if applicable
+        if maker_tax_amount > 0.0 {
+            db::account::update_balance(&pool, maker_account_id, -maker_tax_amount).await
+                .map_err(|e| format!("Failed to deduct maker tax: {}", e))?;
+            
+            db::tax::add_tax(&pool, maker_currency_id, maker_tax_amount)
+                .await
+                .map_err(|e| format!("Failed to record tax: {}", e))?;
+        }
         
         Ok(SwapResult {
             swap_id,
@@ -551,5 +588,160 @@ pub fn create_accept_deny_embed(result: &AcceptDenyResult) -> serenity::builder:
         .field("Taker", format!("<@{}>", result.taker_id), true)
         .field("Taker Wants", result.taker_offer.clone(), true)
         .color(color)
+}
+
+pub struct SwapListResult {
+    pub swaps: Vec<(i64, i64, Option<i64>, String, String, f64, f64, String)>,  // (id, maker_id, taker_id, maker_ticker, taker_ticker, maker_amount, taker_amount, status)
+    pub current_page: usize,
+    pub total_pages: usize,
+    pub total_swaps: i64,
+}
+
+pub async fn get_swaps_list(
+    ctx: &Context,
+    page: usize,
+    sort_by: &str,
+    status: &str,
+    base_currency: Option<&str>,
+    quote_currency: Option<&str>,
+) -> Result<SwapListResult, String> {
+    // Validate page number
+    let page = if page < 1 { 1 } else { page };
+    
+    // Get pool from context
+    let pool = {
+        let data = ctx.data.read().await;
+        data.get::<crate::DatabasePool>()
+            .ok_or("Database not initialized".to_string())?
+            .clone()
+    };
+    
+    let page_size = 5;  // 5 swaps per page
+    
+    // Validate sort_by
+    let sort_by_validated = match sort_by {
+        "oldest" | "latest" | "highmaker" | "lowmaker" | "hightaker" | "lowtaker" => sort_by,
+        _ => "latest",
+    };
+    
+    // Validate status
+    let status_validated = match status {
+        "pending" | "accepted" | "cancelled" | "all" => status,
+        _ => "pending",
+    };
+    
+    // Call database function
+    let (raw_swaps, total_count) = db::swap::get_swaps_paginated(
+        &pool,
+        page,
+        page_size,
+        sort_by_validated,
+        status_validated,
+        base_currency,
+        quote_currency,
+    )
+    .await
+    .map_err(|e| format!("Database error: {}", e))?;
+    
+    // Transform raw swaps to simplified format
+    let swaps = raw_swaps
+        .into_iter()
+        .map(|(id, maker_id, taker_id, _maker_currency_id, _taker_currency_id, maker_amount, taker_amount, status, maker_ticker, taker_ticker)| {
+            (id, maker_id, taker_id, maker_ticker, taker_ticker, maker_amount, taker_amount, status)
+        })
+        .collect();
+    
+    let total_pages = if total_count == 0 {
+        1
+    } else {
+        ((total_count + (page_size as i64 - 1)) / (page_size as i64)) as usize
+    };
+    
+    Ok(SwapListResult {
+        swaps,
+        current_page: page,
+        total_pages,
+        total_swaps: total_count,
+    })
+}
+
+pub fn create_swap_list_embed(
+    result: &SwapListResult,
+    sort_by: &str,
+    status: &str,
+    base_currency: Option<&str>,
+    quote_currency: Option<&str>,
+) -> serenity::builder::CreateEmbed {
+    let mut embed = serenity::builder::CreateEmbed::default()
+        .title(format!("📊 Swap List (Page {}/{})", result.current_page, result.total_pages))
+        .color(0x0b5394);
+    
+    if result.swaps.is_empty() {
+        return embed.description("No swaps found matching the criteria");
+    }
+    
+    // Build table data
+    let mut table_data = Vec::new();
+    for (id, maker_id, taker_id, maker_ticker, taker_ticker, maker_amount, taker_amount, swap_status) in &result.swaps {
+        let taker_str = if let Some(tid) = taker_id {
+            format!("<@{}>", tid)
+        } else {
+            "Open".to_string()
+        };
+        
+        let swap_line = format!(
+            "\n**ID:** `{}`\n**Maker:** <@{}> | **Taker:** {}\n**Offer:** `{:.2} {}` → `{:.2} {}`\n**Status:** {}\n",
+            id, maker_id, taker_str, maker_amount, maker_ticker, taker_amount, taker_ticker, swap_status
+        );
+        table_data.push(swap_line);
+    }
+    
+    // Add swaps to embed (max 3-4 per embed due to Discord limits)
+    let mut current_description = String::new();
+    for (idx, swap_line) in table_data.iter().enumerate() {
+        if current_description.len() + swap_line.len() > 2000 {
+            // Field limit, start a new field
+            embed = embed.field(format!("Swaps (Part {})", idx / 4 + 1), current_description.clone(), false);
+            current_description.clear();
+        }
+        current_description.push_str(swap_line);
+    }
+    
+    if !current_description.is_empty() {
+        embed = embed.field("Swaps", current_description, false);
+    }
+    
+    // Add pagination info
+    let mut filter_desc = format!("**Showing:** {} swaps total", result.total_swaps);
+    if sort_by != "latest" {
+        filter_desc.push_str(&format!("\n**Sort:** {}", sort_by));
+    }
+    if status != "all" {
+        filter_desc.push_str(&format!("\n**Status:** {}", status));
+    }
+    if let Some(base) = base_currency {
+        filter_desc.push_str(&format!("\n**Base Currency:** {}", base));
+    }
+    if let Some(quote) = quote_currency {
+        filter_desc.push_str(&format!("\n**Quote Currency:** {}", quote));
+    }
+    
+    embed = embed.field("Filters", filter_desc, false);
+    
+    // Navigation instructions
+    if result.total_pages > 1 {
+        let mut nav_help = String::new();
+        if result.current_page > 1 {
+            nav_help.push_str(&format!("`$swap list ... p{}` to go to previous page\n", result.current_page - 1));
+        }
+        if result.current_page < result.total_pages {
+            nav_help.push_str(&format!("`$swap list ... p{}` to go to next page", result.current_page + 1));
+        }
+        if !nav_help.is_empty() {
+            embed = embed.field("Navigation", nav_help, false);
+        }
+    }
+    
+    embed
 }
 

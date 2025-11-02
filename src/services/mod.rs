@@ -6,3 +6,6 @@ pub mod mint_service;
 pub mod permission_service;
 pub mod create_currency_service;
 pub mod transaction_service;
+pub mod price_service;
+pub mod chart_service;
+pub mod tax_service;

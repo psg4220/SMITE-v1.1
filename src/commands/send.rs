@@ -100,12 +100,14 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
     let mut successful_recipients = Vec::new();
     let mut failed_recipients = Vec::new();
     let mut total_sent = 0.0;
+    let mut total_tax = 0.0;
     
     for recipient_id in recipients {
         match send_service::execute_send(ctx, msg, recipient_id, amount, &currency_ticker).await {
-            Ok(_result) => {
+            Ok((_receiver_id, _transaction_uuid, tax_amount)) => {
                 successful_recipients.push(recipient_id);
                 total_sent += amount;
+                total_tax += tax_amount;
             }
             Err(e) => {
                 failed_recipients.push((recipient_id, e));
@@ -121,6 +123,7 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
             amount: format!("{:.2}", amount),
             currency_ticker: currency_ticker.clone(),
             total_amount: format!("{:.2}", total_sent),
+            tax_amount: format!("{:.8}", total_tax),
         };
         
         let embed = send_service::create_send_embed(&result);
@@ -144,10 +147,19 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
             format!("Completed {} of {} transfers:", successful_recipients.len(), successful_recipients.len() + failed_recipients.len())
         };
 
-        let embed = serenity::builder::CreateEmbed::default()
+        let mut embed = serenity::builder::CreateEmbed::default()
             .title(title)
             .description(description)
             .color(0xff3333); // Red color for errors
+
+        // Add error details for each failed recipient
+        for (recipient_id, error) in &failed_recipients {
+            embed = embed.field(
+                format!("<@{}>", recipient_id),
+                error,
+                false
+            );
+        }
 
         msg.channel_id
             .send_message(ctx, serenity::builder::CreateMessage::default().embed(embed))

@@ -4,11 +4,13 @@ use serenity::model::gateway::Ready;
 use serenity::prelude::*;
 use std::time::Instant;
 use sqlx::mysql::MySqlPool;
+use tracing::{info, warn, error, debug};
+use tracing_subscriber::EnvFilter;
 
 mod db;
 mod commands;
 mod services;
-mod utils;
+mod utils;                                                   
 
 struct Handler;
 
@@ -31,25 +33,23 @@ impl EventHandler for Handler {
     }
 
     async fn ready(&self, ctx: Context, ready: Ready) {
-        println!("{} is connected!", ready.user.name);
+        info!("{} is connected!", ready.user.name);
         
         // Check for rate limits now that bot is connected
-        println!("\n🔍 Checking Discord rate limit status...");
+        debug!("Checking Discord rate limit status...");
         match ctx.http.get_current_user().await {
             Ok(_) => {
-                println!("✓ No rate limit detected - Bot is fully ready!");
+                info!("No rate limit detected - Bot is fully ready!");
             }
             Err(e) => {
                 let error_msg = e.to_string();
                 if error_msg.contains("429") || error_msg.contains("rate limit") || error_msg.contains("Ratelimited") {
-                    eprintln!("⚠️  WARNING: Bot is being rate limited by Discord!");
-                    eprintln!("⚠️  Error: {}", error_msg);
+                    warn!("Bot is being rate limited by Discord! Error: {}", error_msg);
                 } else {
-                    eprintln!("⚠️  Failed to check rate limit status: {}", error_msg);
+                    warn!("Failed to check rate limit status: {}", error_msg);
                 }
             }
         }
-        println!();
     }
 }
 
@@ -57,15 +57,37 @@ impl EventHandler for Handler {
 async fn main() {
     dotenv::dotenv().ok();
     
+    // Initialize tracing
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env()
+            .add_directive("smite_v1p1=debug".parse().unwrap())
+            .add_directive("serenity=warn".parse().unwrap()))
+        .with_target(true)
+        .with_thread_ids(true)
+        .init();
+    
+    info!("🤖 Starting SMITE bot...");
+    info!("   ______   __       __  ______  ________  ________ ");
+    info!("  /      \\ |  \\     /  \\|      \\|        \\|        \\");
+    info!(" |  $$$$$$\\| $$\\   /  $$ \\$$$$$$ \\$$$$$$$$| $$$$$$$$");
+    info!(" | $$___\\$$| $$$\\ /  $$$  | $$     | $$   | $$__    ");
+    info!("  \\$$    \\ | $$$$\\  $$$$  | $$     | $$   | $$  \\   ");
+    info!("  _\\$$$$$$\\| $$\\$$ $$ $$  | $$     | $$   | $$$$$   ");
+    info!(" |  \\__| $$| $$ \\$$$| $$ _| $$_    | $$   | $$_____ ");
+    info!("  \\$$    $$| $$  \\$ | $$|   $$ \\   | $$   | $$     \\");
+    info!("   \\$$$$$$  \\$$      \\$$ \\$$$$$$    \\$$    \\$$$$$$$$");
+    info!("  SMITE v1.1.0 - Society for Micronational Interbank Transactions and Exchanges");
+    info!("");
+    
     // Initialize database
-    println!("Initializing database...");
+    info!("Initializing database...");
     let pool = match db::init_db().await {
         Ok(p) => {
-            println!("✓ Database initialized successfully");
+            info!("Database initialized successfully");
             p
         }
         Err(e) => {
-            eprintln!("✗ Failed to initialize database: {}", e);
+            error!("Failed to initialize database: {}", e);
             return;
         }
     };
@@ -88,7 +110,7 @@ async fn main() {
     }
 
     if let Err(e) = client.start().await {
-        eprintln!("Client error: {}", e);
+        error!("Client error: {}", e);
     }
 }
 

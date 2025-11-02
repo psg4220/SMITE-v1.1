@@ -106,3 +106,25 @@ pub async fn get_discord_id_by_account_id(
 
     Ok(row.map(|r| r.get::<i64, _>("discord_id")))
 }
+
+/// Add balance to an account by discord_id and currency_id
+pub async fn add_balance(
+    pool: &MySqlPool,
+    discord_id: i64,
+    currency_id: i64,
+    amount: f64,
+) -> Result<(), sqlx::Error> {
+    // First, try to get or create the account
+    if let None = get_account_balance(pool, discord_id, currency_id).await? {
+        create_account(pool, discord_id, currency_id).await?;
+    }
+
+    sqlx::query("UPDATE account SET balance = balance + ? WHERE discord_id = ? AND currency_id = ?")
+        .bind(amount)
+        .bind(discord_id)
+        .bind(currency_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}

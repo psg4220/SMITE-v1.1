@@ -46,3 +46,13 @@ pub async fn get_currency_by_ticker(pool: &MySqlPool, ticker: &str) -> Result<Op
     .fetch_optional(pool)
     .await
 }
+
+/// Get currency by ticker including guild_id
+pub async fn get_currency_by_ticker_with_guild(pool: &MySqlPool, ticker: &str) -> Result<Option<(i64, i64, String, String)>, sqlx::Error> {
+    sqlx::query_as::<_, (i64, i64, String, String)>(
+        "SELECT id, guild_id, name, ticker FROM currency WHERE UPPER(ticker) = UPPER(?)"
+    )
+    .bind(ticker)
+    .fetch_optional(pool)
+    .await
+}

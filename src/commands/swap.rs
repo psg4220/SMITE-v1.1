@@ -12,7 +12,8 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
                 "`$swap <amount> <currency> [<@user or id> <amount> <currency>]`\n\
                  `$swap accept [swap_id]`\n\
                  `$swap deny [swap_id]`\n\
-                 `$swap status <swap_id>`",
+                 `$swap status <swap_id>`\n\
+                 `$swap list [filters] [pN]`",
                 false)
             .field("Examples",
                 "**Create targeted swap:**\n\
@@ -23,7 +24,18 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
                  `$swap accept 123` (accept swap ID 123)\n\
                  `$swap deny 123` (deny swap ID 123)\n\n\
                  **Check status:**\n\
-                 `$swap status 123` (view swap info)",
+                 `$swap status 123` (view swap info)\n\n\
+                 **List swaps:**\n\
+                 `$swap list` (all pending swaps, latest)\n\
+                 `$swap list accepted p2` (accepted swaps, page 2)\n\
+                 `$swap list base:USD highmaker` (USD base, sorted by maker amount)\n\
+                 `$swap list quote:EUR p1` (EUR quote currency)",
+                false)
+            .field("List Filters",
+                "**Sort:** `oldest`, `latest` (default), `highmaker`, `lowmaker`, `hightaker`, `lowtaker`\n\
+                 **Status:** `pending` (default), `accepted`, `cancelled`, `all`\n\
+                 **Currency:** `base:ABC` or `quote:XYZ`\n\
+                 **Pagination:** `pN` (page number, default p1)",
                 false)
             .field("Notes",
                 "• Guild only (no DMs)\n\
@@ -110,6 +122,65 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
             match swap_service::deny_swap(ctx, msg, swap_id).await {
                 Ok((result, _original_msg_id)) => {
                     let embed = swap_service::create_accept_deny_embed(&result);
+                    msg.channel_id
+                        .send_message(ctx, serenity::builder::CreateMessage::default().embed(embed))
+                        .await
+                        .map_err(|e| e.to_string())?;
+                }
+                Err(e) => {
+                    let clean_error = extract_clean_error(&e);
+                    let error_embed = serenity::builder::CreateEmbed::default()
+                        .title("Error")
+                        .description(format!("❌ {}", clean_error))
+                        .color(0xff0000);
+                    msg.channel_id
+                        .send_message(ctx, serenity::builder::CreateMessage::default().embed(error_embed))
+                        .await
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        "list" => {
+            // Parse arguments: $swap list [filters...] [pN]
+            // Filters: oldest/latest, accepted/pending/cancelled, highmaker/lowmaker/hightaker/lowtaker, base:ABC, quote:XYZ
+            // Default: show all swaps (status="all"), sorted by latest
+            
+            let mut page = 1usize;
+            let mut sort_by = "latest";
+            let mut status = "all";  // Default: show ALL swaps, not just pending
+            let mut base_currency: Option<&str> = None;
+            let mut quote_currency: Option<&str> = None;
+            
+            // Parse remaining arguments
+            for arg in &args[1..] {
+                if arg.starts_with("p") && arg.len() > 1 {
+                    // Page number: pN
+                    if let Ok(p) = arg[1..].parse::<usize>() {
+                        page = p;
+                    }
+                } else if arg.starts_with("base:") {
+                    base_currency = Some(&arg[5..]);
+                } else if arg.starts_with("quote:") {
+                    quote_currency = Some(&arg[6..]);
+                } else if *arg == "oldest" || *arg == "latest" || *arg == "highmaker" || *arg == "lowmaker" || *arg == "hightaker" || *arg == "lowtaker" {
+                    sort_by = arg;
+                } else if *arg == "pending" || *arg == "accepted" || *arg == "cancelled" {
+                    status = arg;  // Override default if explicitly specified
+                }
+            }
+            
+            // Get swap list from service
+            match swap_service::get_swaps_list(ctx, page, sort_by, status, base_currency, quote_currency).await {
+                Ok(result) => {
+                    let embed = if result.swaps.is_empty() {
+                        serenity::builder::CreateEmbed::default()
+                            .title("📊 Swap List")
+                            .description("No swaps found matching the criteria")
+                            .color(0xffa500)
+                    } else {
+                        swap_service::create_swap_list_embed(&result, sort_by, status, base_currency, quote_currency)
+                    };
+                    
                     msg.channel_id
                         .send_message(ctx, serenity::builder::CreateMessage::default().embed(embed))
                         .await

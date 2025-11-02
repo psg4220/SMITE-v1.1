@@ -1,4 +1,5 @@
 use sqlx::mysql::MySqlPool;
+use sqlx::Row;
 
 /// Normalize currency pair to canonical order (alphabetically by ticker)
 /// Returns (base_currency_id, quote_currency_id, is_reversed)
@@ -106,6 +107,33 @@ pub async fn get_price_logs_for_pair(
     .await
 }
 
+/// Get price logs for a currency pair with timestamps (for charting)
+/// Returns: (id, price, date_created as string)
+pub async fn get_price_logs_with_timestamps(
+    pool: &MySqlPool,
+    base_currency_id: i64,
+    quote_currency_id: i64,
+) -> Result<Vec<(i64, f64, String)>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT id, CAST(price AS CHAR) as price_str, DATE_FORMAT(date_created, '%Y-%m-%d %H:%i:%s') as date_str FROM tradelog WHERE base_currency_id = ? AND quote_currency_id = ? ORDER BY date_created ASC"
+    )
+    .bind(base_currency_id)
+    .bind(quote_currency_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            let id: i64 = row.get(0);
+            let price_str: String = row.get(1);
+            let date_str: String = row.get(2);
+            let price = price_str.parse::<f64>().ok()?;
+            Some((id, price, date_str))
+        })
+        .collect())
+}
+
 /// Get price logs for a currency pair within a date range
 pub async fn get_price_logs_in_range(
     pool: &MySqlPool,
@@ -123,4 +151,52 @@ pub async fn get_price_logs_in_range(
     .bind(end_date)
     .fetch_all(pool)
     .await
+}
+
+/// Calculate VWAP (Volume Weighted Average Price) for a currency pair
+/// Queries accepted swaps from currency_swap table within the specified timeframe
+/// Timeframe examples: "1 MINUTE", "1 HOUR", "1 DAY", "7 DAY", "30 DAY", "1 YEAR"
+/// Returns the VWAP as f64, or None if no accepted swaps exist in the timeframe
+pub async fn calculate_vwap(
+    pool: &MySqlPool,
+    base_currency_id: i64,
+    quote_currency_id: i64,
+    timeframe: &str,
+) -> Result<Option<f64>, sqlx::Error> {
+    // Query accepted swaps for this currency pair
+    // Price = taker_amount / maker_amount (quote / base)
+    // Volume = maker_amount (base currency volume)
+    // VWAP = Σ((taker_amount / maker_amount) × maker_amount) / Σ(maker_amount)
+    //      = Σ(taker_amount) / Σ(maker_amount)
+    let sql = format!(
+        "SELECT 
+            COALESCE(CAST(SUM(CAST(cs.taker_amount AS DECIMAL(20,8))) AS CHAR), '0') as total_taker,
+            COALESCE(CAST(SUM(CAST(cs.maker_amount AS DECIMAL(20,8))) AS CHAR), '0') as total_maker
+         FROM currency_swap cs
+         WHERE cs.maker_currency_id = ? 
+           AND cs.taker_currency_id = ?
+           AND cs.status = 'accepted'
+           AND cs.date_created >= DATE_SUB(NOW(), INTERVAL {})",
+        timeframe
+    );
+    
+    let result: Option<(String, String)> = sqlx::query_as(&sql)
+        .bind(base_currency_id)
+        .bind(quote_currency_id)
+        .fetch_optional(pool)
+        .await?;
+
+    match result {
+        Some((total_taker_str, total_maker_str)) => {
+            let total_taker: f64 = total_taker_str.parse().unwrap_or(0.0);
+            let total_maker: f64 = total_maker_str.parse().unwrap_or(0.0);
+
+            if total_maker > 0.0 {
+                Ok(Some(total_taker / total_maker))
+            } else {
+                Ok(None)
+            }
+        }
+        None => Ok(None),
+    }
 }

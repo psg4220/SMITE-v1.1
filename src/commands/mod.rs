@@ -6,22 +6,12 @@ pub mod mint;
 pub mod create_currency;
 pub mod transaction;
 pub mod price;
+pub mod tax;
 
 
-use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
-use lazy_static::lazy_static;
 use serenity::model::channel::Message;
-use serenity::model::id::UserId;
 use serenity::prelude::Context;
-use tokio::sync::Mutex;
-
-lazy_static::lazy_static! {
-    static ref COMMAND_COOLDOWNS: Mutex<HashMap<(UserId, String), u64>> = 
-        Mutex::new(HashMap::new());
-}
-
-const COOLDOWN_SECONDS: u64 = 5;
+use tracing::error;
 
 pub async fn handle_message(ctx: &Context, msg: &Message) {
     if msg.author.bot {
@@ -30,43 +20,37 @@ pub async fn handle_message(ctx: &Context, msg: &Message) {
 
     let content = &msg.content;
     let user_id = msg.author.id;
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+
+    // Check global rate limit first (50 requests per second across all users)
+    if let Err(remaining_ms) = crate::utils::check_global_rate_limit().await {
+        let _ = msg.channel_id.send_message(
+            ctx,
+            serenity::builder::CreateMessage::default().embed(
+                serenity::builder::CreateEmbed::default()
+                    .title("Global Rate Limit")
+                    .description(format!("⚠️ Server is handling too many requests. Please wait {}ms and try again.", remaining_ms))
+                    .color(0xff9900)
+            )
+        ).await;
+        return;
+    }
 
     // Check rate limit before processing command
     if let Some(command) = content.split_whitespace().next() {
-        let command_str = command.to_string();
-        let key = (user_id, command_str);
-        
-        // Use a block to limit the scope of the lock
-        let should_cooldown = {
-            let mut cooldowns = COMMAND_COOLDOWNS.lock().await;
-            if let Some(&last_time) = cooldowns.get(&key) {
-                let elapsed = now.saturating_sub(last_time);
-                if elapsed < COOLDOWN_SECONDS {
-                    Some(COOLDOWN_SECONDS - elapsed)
-                } else {
-                    cooldowns.insert(key.clone(), now);
-                    None
-                }
-            } else {
-                cooldowns.insert(key.clone(), now);
-                None
+        // Use check_cooldown from utils module
+        if let Err((remaining, should_warn)) = crate::utils::check_cooldown(user_id, command).await {
+            // Only send warning message on first cooldown violation, not on retries
+            if should_warn {
+                let _ = msg.channel_id.send_message(
+                    ctx,
+                    serenity::builder::CreateMessage::default().embed(
+                        serenity::builder::CreateEmbed::default()
+                            .title("Command Cooldown")
+                            .description(format!("⏳ Please wait {} seconds before using this command again.", remaining))
+                            .color(0xffa500)
+                    )
+                ).await;
             }
-        };
-        
-        if let Some(remaining) = should_cooldown {
-            let _ = msg.channel_id.send_message(
-                ctx,
-                serenity::builder::CreateMessage::default().embed(
-                    serenity::builder::CreateEmbed::default()
-                        .title("Command Cooldown")
-                        .description(format!("⏳ Please wait {} seconds before using this command again.", remaining))
-                        .color(0xffa500)
-                )
-            ).await;
             return;
         }
     }
@@ -89,12 +73,13 @@ pub async fn handle_message(ctx: &Context, msg: &Message) {
         "$create_currency" | "$cc" => create_currency::execute(ctx, msg, args).await,
         "$transaction" | "$tr" => transaction::execute(ctx, msg, args).await,
         "$price" => price::execute(ctx, msg, args).await,
+        "$tax" => tax::execute(ctx, msg, args).await,
         _ => return,
     };
 
     if let Err(e) = result {
         let error_msg = e.to_string();
-        eprintln!("❌ Error executing command {}: {}", command, error_msg);
+        error!("Error executing command {}: {}", command, error_msg);
         
         // Extract clean error message from database errors
         // Pattern: "error returned from database: 1644 (45000): Insufficient balance to accept swap"

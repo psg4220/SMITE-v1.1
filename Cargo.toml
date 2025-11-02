@@ -14,3 +14,7 @@ dotenv = "0.15"
 sqlx = { version = "0.8.1", features = ["runtime-tokio-native-tls", "mysql"] }
 uuid = { version = "1.6", features = ["v4"] }
 lazy_static = "1.4.0"
+plotters = "0.3.7"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "ansi"] }

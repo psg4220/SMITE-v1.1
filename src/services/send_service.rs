@@ -9,6 +9,7 @@ pub struct SendResult {
     pub amount: String,
     pub currency_ticker: String,
     pub total_amount: String,
+    pub tax_amount: String,
 }
 
 pub async fn execute_send(
@@ -17,7 +18,7 @@ pub async fn execute_send(
     receiver_id: i64,
     amount: f64,
     currency_ticker: &str,
-) -> Result<(i64, String), String> {
+) -> Result<(i64, String, f64), String> {
     // Check permission (guild required, no special roles needed)
     let perm_ctx = permission_service::check_permission(
         ctx,
@@ -26,7 +27,6 @@ pub async fn execute_send(
     )
     .await?;
 
-    let guild_id = perm_ctx.guild_id;
     let sender_id = msg.author.id.get() as i64;
 
     // Prevent self transfer
@@ -74,15 +74,44 @@ pub async fn execute_send(
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or("Sender has no account".to_string())?;
     
-    if sender_balance < amount {
-        return Err("Insufficient balance".to_string());
+    // Calculate tax
+    let tax_percentage = db::tax::get_tax_percentage(&pool, currency_id)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?
+        .unwrap_or(0);
+    
+    let tax_amount = if tax_percentage > 0 {
+        (amount * tax_percentage as f64) / 100.0
+    } else {
+        0.0
+    };
+    
+    let total_deduction = amount + tax_amount;
+    
+    if sender_balance < total_deduction {
+        return Err(format!(
+            "❌ Insufficient balance\n\nAmount: {:.8} {}\nTax: {:.8} {}\nTotal: {:.8} {}\nAvailable: {:.8} {}",
+            amount, currency_ticker,
+            tax_amount, currency_ticker,
+            total_deduction, currency_ticker,
+            sender_balance, currency_ticker
+        ));
     }
     
-    // Execute transfer
-    db::account::update_balance(&pool, sender_account_id, -amount).await
+    // Execute transfer - deduct both amount and tax from sender
+    db::account::update_balance(&pool, sender_account_id, -total_deduction).await
         .map_err(|e| format!("Failed to update sender balance: {}", e))?;
+    
+    // Send only the amount (without tax) to receiver
     db::account::update_balance(&pool, receiver_account_id, amount).await
         .map_err(|e| format!("Failed to update receiver balance: {}", e))?;
+    
+    // Add tax to tax account if tax was deducted
+    if tax_amount > 0.0 {
+        db::tax::add_tax(&pool, currency_id, tax_amount)
+            .await
+            .map_err(|e| format!("Failed to record tax: {}", e))?;
+    }
     
     // Log transaction
     let transaction_uuid = uuid::Uuid::new_v4().to_string();
@@ -95,7 +124,7 @@ pub async fn execute_send(
     ).await
     .map_err(|e| format!("Failed to log transaction: {}", e))?;
     
-    Ok((receiver_id, transaction_uuid))
+    Ok((receiver_id, transaction_uuid, tax_amount))
 }
 
 pub fn create_send_embed(result: &SendResult) -> serenity::builder::CreateEmbed {
@@ -104,11 +133,28 @@ pub fn create_send_embed(result: &SendResult) -> serenity::builder::CreateEmbed 
         recipients_str.push_str(&format!("<@{}>\n", receiver_id));
     }
     
-    serenity::builder::CreateEmbed::default()
+    let mut embed = serenity::builder::CreateEmbed::default()
         .title("💸 Transfer Successful")
         .field("From", format!("<@{}>", result.sender_id), false)
         .field("To", recipients_str, false)
-        .field("Amount", format!("{} {}", result.amount, result.currency_ticker), false)
-        .field("Total", format!("{} {}", result.total_amount, result.currency_ticker), false)
-        .color(0x00ff00)
+        .color(0x00ff00);
+    
+    // Parse amounts to display breakdown
+    if let (Ok(amount), Ok(tax)) = (result.amount.parse::<f64>(), result.tax_amount.parse::<f64>()) {
+        let total_charged = amount + tax;
+        
+        if tax > 0.0 {
+            let breakdown = format!(
+                "**Amount Sent**: {} {}\n**Tax Deducted**: {} {}\n**Total Charged**: {:.8} {}",
+                result.amount, result.currency_ticker,
+                result.tax_amount, result.currency_ticker,
+                total_charged, result.currency_ticker
+            );
+            embed = embed.field("Transfer Breakdown", breakdown, false);
+        } else {
+            embed = embed.field("Amount", format!("{} {}", result.amount, result.currency_ticker), false);
+        }
+    }
+    
+    embed
 }
