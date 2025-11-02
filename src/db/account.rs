@@ -128,3 +128,16 @@ pub async fn add_balance(
 
     Ok(())
 }
+
+/// Get total balance across all accounts for a currency
+pub async fn get_total_balance(
+    pool: &MySqlPool,
+    currency_id: i64,
+) -> Result<Option<f64>, sqlx::Error> {
+    let row = sqlx::query("SELECT CAST(SUM(CAST(balance AS DOUBLE)) AS DOUBLE) as total FROM account WHERE currency_id = ?")
+        .bind(currency_id)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok(row.and_then(|r| r.get::<Option<f64>, _>("total")))
+}

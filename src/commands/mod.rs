@@ -7,6 +7,7 @@ pub mod create_currency;
 pub mod transaction;
 pub mod price;
 pub mod tax;
+pub mod info;
 
 
 use serenity::model::channel::Message;
@@ -74,6 +75,7 @@ pub async fn handle_message(ctx: &Context, msg: &Message) {
         "$transaction" | "$tr" => transaction::execute(ctx, msg, args).await,
         "$price" => price::execute(ctx, msg, args).await,
         "$tax" => tax::execute(ctx, msg, args).await,
+        "$info" => info::execute(ctx, msg, args).await,
         _ => return,
     };
 

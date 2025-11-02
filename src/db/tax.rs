@@ -149,3 +149,25 @@ pub async fn get_tax_percentage(
 
     Ok(result)
 }
+
+/// Get total tax balance for a currency
+pub async fn get_total_tax_balance(
+    pool: &MySqlPool,
+    currency_id: i64,
+) -> Result<Option<f64>, sqlx::Error> {
+    let result: Option<(String,)> = sqlx::query_as(
+        "SELECT CAST(balance AS CHAR) as balance_str FROM tax_account WHERE currency_id = ?"
+    )
+    .bind(currency_id)
+    .fetch_optional(pool)
+    .await?;
+
+    match result {
+        Some((balance_str,)) => {
+            let balance = balance_str.parse::<f64>()
+                .map_err(|e| sqlx::Error::Decode(e.into()))?;
+            Ok(Some(balance))
+        },
+        None => Ok(Some(0.0)),
+    }
+}

@@ -1,4 +1,5 @@
 use sqlx::mysql::MySqlPool;
+use sqlx::Row;
 
 /// Create a new currency for a guild
 pub async fn create_currency(
@@ -55,4 +56,17 @@ pub async fn get_currency_by_ticker_with_guild(pool: &MySqlPool, ticker: &str) -
     .bind(ticker)
     .fetch_optional(pool)
     .await
+}
+
+/// Get currency creation date
+pub async fn get_currency_date(
+    pool: &MySqlPool,
+    currency_id: i64,
+) -> Result<Option<String>, sqlx::Error> {
+    let row = sqlx::query("SELECT DATE_FORMAT(date_created, '%Y-%m-%d') as date_str FROM currency WHERE id = ?")
+        .bind(currency_id)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok(row.map(|r| r.get::<String, _>("date_str")))
 }

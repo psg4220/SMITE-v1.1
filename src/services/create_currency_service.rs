@@ -2,6 +2,7 @@ use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use crate::db;
 use crate::services::permission_service;
+use crate::blacklist;
 
 pub struct CreateCurrencyResult {
     pub currency_id: i64,
@@ -25,16 +26,25 @@ pub async fn execute_create_currency(
 
     let guild_id = perm_ctx.guild_id;
 
-    // Validate ticker length (must be exactly 4 characters)
-    if ticker.len() != 4 {
+    // Validate ticker length (must be 3-4 characters)
+    if ticker.len() < 3 || ticker.len() > 4 {
         return Err(format!(
-            "Currency ticker must be exactly 4 characters long, but got '{}'",
-            ticker
+            "Currency ticker must be 3-4 characters long, but got '{}' ({} chars)",
+            ticker, ticker.len()
         ));
     }
 
     // Convert ticker to uppercase
     let ticker_upper = ticker.to_uppercase();
+
+    // Check if ticker is blacklisted
+    let blacklist_tickers = blacklist::get_blacklisted_tickers();
+    if blacklist_tickers.contains(&ticker_upper) {
+        return Err(format!(
+            "❌ The ticker '{}' is reserved and cannot be used to prevent scams. Please choose a different ticker.",
+            ticker_upper
+        ));
+    }
 
     // Get pool from context
     let pool = {

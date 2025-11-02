@@ -19,8 +19,9 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
                     false)
                 .field("Rules",
                     "• Currency name: Can have spaces (use quotes)\n\
-                     • Ticker: Exactly 4 characters (auto-uppercase)\n\
-                     • Per Guild: Only one currency per guild",
+                     • Ticker: 3-4 characters (auto-uppercase)\n\
+                     • Per Guild: Only one currency per guild\n\
+                     • Blacklist: Real-world currencies are reserved",
                     false)
                 .color(0x00aaff);
             

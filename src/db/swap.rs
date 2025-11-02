@@ -1,4 +1,5 @@
 use sqlx::mysql::MySqlPool;
+use sqlx::Row;
 
 /// Get a swap by ID (direct query)
 /// Returns: (id, maker_id, taker_id, maker_currency_id, taker_currency_id, maker_amount, taker_amount, status)
@@ -359,5 +360,18 @@ pub async fn get_swaps_paginated(
     .await?;
     
     Ok((swaps, total_count.0))
+}
+
+/// Get total maker amount in pending/open swaps for a currency
+pub async fn get_total_swap_maker_amount(
+    pool: &MySqlPool,
+    currency_id: i64,
+) -> Result<Option<f64>, sqlx::Error> {
+    let row = sqlx::query("SELECT CAST(SUM(CAST(maker_amount AS DOUBLE)) AS DOUBLE) as total FROM currency_swap WHERE maker_currency_id = ? AND status = 'pending'")
+        .bind(currency_id)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok(row.and_then(|r| r.get::<Option<f64>, _>("total")))
 }
 

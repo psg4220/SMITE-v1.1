@@ -76,7 +76,7 @@ pub async fn collect_tax(
 
     if collect_amount > current_balance {
         return Err(format!(
-            "❌ Insufficient tax balance. Available: {:.8}",
+            "❌ Insufficient tax balance. Available: {:.2}",
             current_balance
         ))?;
     }
@@ -92,7 +92,7 @@ pub async fn collect_tax(
         .map_err(|e| format!("Failed to add tax to account: {}", e))?;
 
     Ok(format!(
-        "✅ Collected {:.8} tax and added to your account",
+        "✅ Collected {:.2} tax and added to your account",
         collected
     ))
 }
@@ -110,7 +110,7 @@ pub async fn get_tax_info(
             Ok(format!(
                 "💰 **Tax Account Info**\n\
                  Percentage: **{}%**\n\
-                 Balance: **{:.8}**",
+                 Balance: **{:.2}**",
                 percentage, balance
             ))
         },

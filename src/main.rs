@@ -10,7 +10,8 @@ use tracing_subscriber::EnvFilter;
 mod db;
 mod commands;
 mod services;
-mod utils;                                                   
+mod utils;
+mod blacklist;
 
 struct Handler;
 
