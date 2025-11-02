@@ -1,7 +1,9 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use crate::db;
-use crate::services::permission_service;
+
+// Maximum value for DECIMAL(24,8): 999,999,999,999,999.99999999
+const MAX_BALANCE: f64 = 999_999_999_999_999.99999999;
 
 pub struct MintResult {
     pub user_id: i64,
@@ -17,15 +19,16 @@ pub async fn execute_mint(
     amount: f64,
     currency_ticker: &str,
 ) -> Result<MintResult, String> {
-    // Check permission (Admin or Minter role required for minting)
-    let perm_ctx = permission_service::check_permission(
-        ctx,
-        msg,
-        &["Admin", "Minter"],
-    )
-    .await?;
+    // Get guild ID (required)
+    let guild_id = msg
+        .guild_id
+        .ok_or("This command can only be used in a guild".to_string())?;
 
-    let guild_id = perm_ctx.guild_id;
+    // Check permission - user must be admin or minter
+    crate::utils::check_user_roles(ctx, guild_id, msg.author.id, &["admin", "minter"])
+        .await?;
+
+    let guild_id_i64 = guild_id.get() as i64;
 
     // Get pool from context
     let pool = {
@@ -50,23 +53,13 @@ pub async fn execute_mint(
     
     let currency_guild_id = currency_details.1;
     
-    // If minting a currency from another guild, verify "Minter" role in that guild
-    if currency_guild_id != guild_id as i64 {
-        // This is a cross-guild mint attempt - check Minter role in target guild
+    // If minting a currency from another guild, verify permission in that guild
+    if currency_guild_id != guild_id_i64 {
+        // This is a cross-guild mint attempt - check permission in target guild
         let target_guild_id = serenity::model::prelude::GuildId::new(currency_guild_id as u64);
-        let target_user_id = serenity::model::prelude::UserId::new(msg.author.id.get());
         
-        // Get user's roles in the target guild using permission_service
-        let target_roles = permission_service::get_user_role_names(ctx, target_guild_id, target_user_id)
+        crate::utils::check_user_roles(ctx, target_guild_id, msg.author.id, &["admin", "minter"])
             .await?;
-        
-        // Check if user has Minter role in the target guild (Admin also counts)
-        let has_permission = target_roles.contains(&"Minter".to_string()) 
-            || target_roles.contains(&"Admin".to_string());
-        
-        if !has_permission {
-            return Err("❌ You must have the 'Minter' or 'Admin' role in the target guild to mint that currency!".to_string());
-        }
     }
 
     // Get or create account
@@ -89,6 +82,26 @@ pub async fn execute_mint(
 
     // Calculate new balance
     let new_balance = current_balance + amount;
+
+    // Check if amount is positive
+    if amount <= 0.0 {
+        return Err("❌ Mint amount must be greater than 0".to_string());
+    }
+
+    // Check for overflow
+    if new_balance > MAX_BALANCE {
+        return Err(format!(
+            "❌ Operation blocked: Balance would exceed maximum limit.\n\
+             Current balance: {:.8} {}\n\
+             Requested mint: {:.8} {}\n\
+             New balance would be: {:.8} {}\n\
+             Maximum allowed: {:.8} {}",
+            current_balance, currency_ticker,
+            amount, currency_ticker,
+            new_balance, currency_ticker,
+            MAX_BALANCE, currency_ticker
+        ));
+    }
 
     // Prevent negative balance
     if new_balance < 0.0 {

@@ -1,7 +1,9 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use crate::db;
-use crate::services::permission_service;
+
+// Maximum value for DECIMAL(24,8): 999,999,999,999,999.99999999
+const MAX_BALANCE: f64 = 999_999_999_999_999.99999999;
 
 pub struct SendResult {
     pub sender_id: i64,
@@ -19,13 +21,10 @@ pub async fn execute_send(
     amount: f64,
     currency_ticker: &str,
 ) -> Result<(i64, String, f64), String> {
-    // Check permission (guild required, no special roles needed)
-    let perm_ctx = permission_service::check_permission(
-        ctx,
-        msg,
-        &[],
-    )
-    .await?;
+    // Guild is required for sending
+    let _guild_id = msg
+        .guild_id
+        .ok_or("This command can only be used in a guild".to_string())?;
 
     let sender_id = msg.author.id.get() as i64;
 
@@ -43,7 +42,7 @@ pub async fn execute_send(
     };
     
     // Get currency by ticker
-    let (currency_id, currency_name, _) = db::currency::get_currency_by_ticker(&pool, currency_ticker)
+    let (currency_id, _currency_name, _) = db::currency::get_currency_by_ticker(&pool, currency_ticker)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or_else(|| format!("Currency '{}' not found", currency_ticker))?;
@@ -95,6 +94,27 @@ pub async fn execute_send(
             tax_amount, currency_ticker,
             total_deduction, currency_ticker,
             sender_balance, currency_ticker
+        ));
+    }
+    
+    // Check receiver balance won't exceed maximum
+    let receiver_balance = db::account::get_account_balance(&pool, receiver_id, currency_id)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?
+        .unwrap_or(0.0);
+    
+    let receiver_new_balance = receiver_balance + amount;
+    if receiver_new_balance > MAX_BALANCE {
+        return Err(format!(
+            "❌ Transfer blocked: Receiver balance would exceed maximum limit.\n\
+             Receiver current balance: {:.8} {}\n\
+             Transfer amount: {:.8} {}\n\
+             New balance would be: {:.8} {}\n\
+             Maximum allowed: {:.8} {}",
+            receiver_balance, currency_ticker,
+            amount, currency_ticker,
+            receiver_new_balance, currency_ticker,
+            MAX_BALANCE, currency_ticker
         ));
     }
     

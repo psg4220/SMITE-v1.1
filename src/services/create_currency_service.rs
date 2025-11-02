@@ -1,7 +1,6 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use crate::db;
-use crate::services::permission_service;
 use crate::blacklist;
 
 pub struct CreateCurrencyResult {
@@ -15,15 +14,16 @@ pub async fn execute_create_currency(
     name: &str,
     ticker: &str,
 ) -> Result<CreateCurrencyResult, String> {
-    // Check permission (guild required, Admin role required)
-    let perm_ctx = permission_service::check_permission(
-        ctx,
-        msg,
-        &["Admin"],
-    )
-    .await?;
+    // Get guild ID (required)
+    let guild_id = msg
+        .guild_id
+        .ok_or("This command can only be used in a guild".to_string())?;
 
-    let guild_id = perm_ctx.guild_id;
+    // Check permission - user must be admin
+    crate::utils::check_user_roles(ctx, guild_id, msg.author.id, &["admin"])
+        .await?;
+
+    let guild_id = guild_id.get() as i64;
 
     // Validate ticker length (must be 3-4 characters)
     if ticker.len() < 3 || ticker.len() > 4 {

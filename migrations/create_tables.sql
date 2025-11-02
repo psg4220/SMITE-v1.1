@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS account (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     discord_id BIGINT NOT NULL,
     currency_id BIGINT NOT NULL,
-    balance DECIMAL(18,8) NOT NULL DEFAULT 0.0,
+    balance DECIMAL(24,8) NOT NULL DEFAULT 0.0,
     date_created DATETIME DEFAULT CURRENT_TIMESTAMP,
     date_updated DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
@@ -35,8 +35,8 @@ CREATE TABLE IF NOT EXISTS currency_swap (
     taker_id BIGINT NULL,
     maker_currency_id BIGINT NOT NULL,
     taker_currency_id BIGINT NOT NULL,
-    maker_amount DECIMAL(18,8) NOT NULL,
-    taker_amount DECIMAL(18,8) NOT NULL,
+    maker_amount DECIMAL(24,8) NOT NULL,
+    taker_amount DECIMAL(24,8) NOT NULL,
     status ENUM('pending','accepted','completed','cancelled','expired') DEFAULT 'pending',
     date_created DATETIME DEFAULT CURRENT_TIMESTAMP,
     date_updated DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS transaction (
     uuid CHAR(36) PRIMARY KEY,
     sender_id BIGINT NOT NULL,
     receiver_id BIGINT NOT NULL,
-    amount DECIMAL(18,8) NOT NULL,
+    amount DECIMAL(24,8) NOT NULL,
     date_created DATETIME DEFAULT CURRENT_TIMESTAMP,
     
     INDEX idx_transaction_sender (sender_id),
@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS tradelog (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     base_currency_id BIGINT NOT NULL,
     quote_currency_id BIGINT NOT NULL,
-    price DECIMAL(18,8) NOT NULL,
+    price DECIMAL(24,8) NOT NULL,
     date_created DATETIME DEFAULT CURRENT_TIMESTAMP,
     
     INDEX idx_tradelog_pair_date (base_currency_id, quote_currency_id, date_created DESC),
@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS tradelog (
 CREATE TABLE IF NOT EXISTS tax_account (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     currency_id BIGINT UNIQUE NOT NULL,
-    balance DECIMAL(18,8) NOT NULL DEFAULT 0.0,
+    balance DECIMAL(24,8) NOT NULL DEFAULT 0.0,
     tax_percentage INT NOT NULL DEFAULT 0,
     date_created DATETIME DEFAULT CURRENT_TIMESTAMP,
     date_updated DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

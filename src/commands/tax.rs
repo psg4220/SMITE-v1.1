@@ -1,6 +1,6 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
-use crate::services::{tax_service, permission_service};
+use crate::services::tax_service;
 use tracing::debug;
 
 pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), String> {
@@ -29,16 +29,13 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
         return Ok(());
     }
 
-    // Check permissions - only admin and tax collector can use
-    let perm_result = permission_service::check_permission(
-        ctx,
-        msg,
-        &["admin", "tax collector"],
-    ).await;
+    // Check permissions - user must be in a guild and have admin or tax collector role
+    let guild_id = msg
+        .guild_id
+        .ok_or("This command can only be used in a guild".to_string())?;
 
-    if perm_result.is_err() {
-        return Err("❌ You do not have permission to use tax commands. Required roles: **admin** or **tax collector**".to_string());
-    }
+    crate::utils::check_user_roles(ctx, guild_id, msg.author.id, &["admin", "tax collector"])
+        .await?;
 
     let subcommand = args[0].to_lowercase();
 
@@ -82,26 +79,8 @@ async fn execute_set(
         .ok_or(format!("❌ Currency '{}' not found", ticker))?;
 
     let currency_id = currency.0;
-    let currency_guild_id = currency.1; // guild_id from currency tuple
 
-    debug!("Tax command for currency: {} (ID: {}), Guild ID: {}", ticker, currency_id, currency_guild_id);
-
-    // Get user's id
-    let user_id = msg.author.id;
-    let currency_guild_id_obj = serenity::model::prelude::GuildId::new(currency_guild_id as u64);
-    
-    // Get user's roles in the currency guild
-    let user_roles = permission_service::get_user_role_names(ctx, currency_guild_id_obj, user_id)
-        .await?;
-    
-    // Check if user has admin or tax collector role
-    let has_required_role = user_roles.iter().any(|r| {
-        r.to_lowercase() == "admin" || r.to_lowercase() == "tax collector"
-    });
-    
-    if !has_required_role {
-        return Err("❌ You do not have admin or tax collector role in the currency's guild".to_string());
-    }
+    debug!("Tax command for currency: {} (ID: {})", ticker, currency_id);
 
     // Set tax
     let response = tax_service::set_tax(pool, currency_id, percentage, &ticker).await?;
@@ -140,24 +119,6 @@ async fn execute_collect(
         .ok_or(format!("❌ Currency '{}' not found", ticker))?;
 
     let currency_id = currency.0;
-    let currency_guild_id = currency.1;
-
-    // Check that the user has admin or tax collector role in the CURRENCY's guild
-    let user_id = msg.author.id;
-    let currency_guild_id_obj = serenity::model::prelude::GuildId::new(currency_guild_id as u64);
-    
-    // Get user's roles in the currency guild
-    let user_roles = permission_service::get_user_role_names(ctx, currency_guild_id_obj, user_id)
-        .await?;
-    
-    // Check if user has admin or tax collector role
-    let has_required_role = user_roles.iter().any(|r| {
-        r.to_lowercase() == "admin" || r.to_lowercase() == "tax collector"
-    });
-    
-    if !has_required_role {
-        return Err("❌ You do not have admin or tax collector role in the currency's guild".to_string());
-    }
 
     let collector_id = msg.author.id.get() as i64;
 
