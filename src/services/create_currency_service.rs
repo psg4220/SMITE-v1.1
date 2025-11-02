@@ -5,7 +5,6 @@ use crate::services::permission_service;
 use crate::blacklist;
 
 pub struct CreateCurrencyResult {
-    pub currency_id: i64,
     pub name: String,
     pub ticker: String,
 }
@@ -74,7 +73,6 @@ pub async fn execute_create_currency(
         .map_err(|e| format!("Failed to create currency: {}", e))?;
 
     Ok(CreateCurrencyResult {
-        currency_id,
         name: name.to_string(),
         ticker: ticker_upper,
     })
@@ -85,7 +83,6 @@ pub fn create_currency_embed(result: &CreateCurrencyResult) -> serenity::builder
         .title("💱 Currency Created")
         .field("Currency Name", &result.name, true)
         .field("Ticker", &result.ticker, true)
-        .field("Currency ID", result.currency_id.to_string(), false)
         .description("Your guild's official currency has been created!")
         .color(0x00ff00)
 }

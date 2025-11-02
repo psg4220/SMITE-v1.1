@@ -81,7 +81,7 @@ pub async fn execute_swap(
     
     if maker_balance < maker_total_deduction {
         return Err(format!(
-            "Maker has insufficient {} balance. Required: {:.8} ({:.8} + {:.8} tax), Available: {:.8}",
+            "Maker has insufficient {} balance. Required: {:.2} ({:.2} + {:.2} tax), Available: {:.2}",
             maker_ticker, maker_total_deduction, maker_amount, maker_tax_amount, maker_balance
         ));
     }

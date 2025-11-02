@@ -91,7 +91,10 @@ pub async fn check_permission(
         .map_err(|e| format!("Failed to get guild: {}", e))?;
     
     if user_id.get() == guild.owner_id.get() {
-        user_roles.push("Admin".to_string());
+        // Only add "Admin" if it's not already in the list
+        if !user_roles.contains(&"Admin".to_string()) {
+            user_roles.push("Admin".to_string());
+        }
     }
 
     // Debug: log user roles

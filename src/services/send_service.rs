@@ -90,7 +90,7 @@ pub async fn execute_send(
     
     if sender_balance < total_deduction {
         return Err(format!(
-            "❌ Insufficient balance\n\nAmount: {:.8} {}\nTax: {:.8} {}\nTotal: {:.8} {}\nAvailable: {:.8} {}",
+            "❌ Insufficient balance\n\nAmount: {:.2} {}\nTax: {:.2} {}\nTotal: {:.2} {}\nAvailable: {:.2} {}",
             amount, currency_ticker,
             tax_amount, currency_ticker,
             total_deduction, currency_ticker,
@@ -145,7 +145,7 @@ pub fn create_send_embed(result: &SendResult) -> serenity::builder::CreateEmbed 
         
         if tax > 0.0 {
             let breakdown = format!(
-                "**Amount Sent**: {} {}\n**Tax Deducted**: {} {}\n**Total Charged**: {:.8} {}",
+                "**Amount Sent**: {} {}\n**Tax Deducted**: {} {}\n**Total Charged**: {:.2} {}",
                 result.amount, result.currency_ticker,
                 result.tax_amount, result.currency_ticker,
                 total_charged, result.currency_ticker
