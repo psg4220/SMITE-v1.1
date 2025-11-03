@@ -83,7 +83,7 @@ async fn main() {
     info!(" |  \\__| $$| $$ \\$$$| $$ _| $$_    | $$   | $$_____ ");
     info!("  \\$$    $$| $$  \\$ | $$|   $$ \\   | $$   | $$     \\");
     info!("   \\$$$$$$  \\$$      \\$$ \\$$$$$$    \\$$    \\$$$$$$$$");
-    info!("  SMITE v1.1.0 - Society for Micronational Interbank Transactions and Exchanges");
+    info!("  SMITE v1.1.1 - Society for Micronational Interbank Transactions and Exchanges");
     info!("");
     
     // Initialize database
