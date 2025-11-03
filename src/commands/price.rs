@@ -11,12 +11,13 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
         let help_embed = serenity::builder::CreateEmbed::default()
             .title("💹 Price Command")
             .description("Display the VWAP and last traded price for a currency pair, or generate a price chart")
-            .field("Usage", "`$price <base>/<quote> [timeframe]`\n`$price chart <base>/<quote>`", false)
+            .field("Usage", "`$price <base>/<quote> [timeframe]`\n`$price chart <base>/<quote>`\n`$price list [filters] [page]`", false)
             .field("Examples",
                 "`$price ABC/XYZ` (default 24h VWAP)\n\
                  `$price BTC/USD 1h` (1 hour VWAP)\n\
-                 `$price EUR/USD 7d` (7 day VWAP)\n\
-                 `$price chart ABC/XYZ` (generate price chart)",
+                 `$price chart BTC/USD` (generate price chart)\n\
+                 `$price list` (all prices)\n\
+                 `$price list BTC/` (all BTC pairs)",
                 false)
             .field("Timeframes",
                 "**Minutes:** 1m, 2m, 4m, 5m, 10m, 20m, 30m\n\
@@ -24,11 +25,6 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
                  **Days:** 1d, 2d, 4d, 7d, 14d\n\
                  **Months:** 1mnt, 3mnt, 12mnt\n\
                  **Years:** 1y",
-                false)
-            .field("Notes",
-                "• The system stores pairs in canonical (alphabetical) order\n\
-                 • Pairs are automatically normalized: ABC/XYZ or XYZ/ABC both work\n\
-                 • Price = quote_amount / base_amount",
                 false)
             .color(0x00ff00);
 
@@ -39,20 +35,24 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
         return Ok(());
     }
 
-    // Check if the first argument is "chart"
-    if args[0].to_lowercase() == "chart" {
-        return execute_chart(ctx, msg, &args[1..]).await;
+    // Route to subcommand
+    match args[0].to_lowercase().as_str() {
+        "chart" => execute_chart(ctx, msg, &args[1..]).await,
+        "list" => execute_list(ctx, msg, &args[1..]).await,
+        _ => execute_price(ctx, msg, args).await,
     }
+}
 
-    let pair_str = args[0];
-    let parts: Vec<&str> = pair_str.split('/').collect();
+/// Execute the price display command
+async fn execute_price(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), String> {
+    tracing::info!("💹 Get price for pair: {:?}", args);
     
-    if parts.len() != 2 {
-        return Err("❌ Invalid pair format. Use: `$price BASE/QUOTE`".to_string());
+    if args.is_empty() {
+        return Err("❌ Usage: `$price BASE/QUOTE [timeframe]`".to_string());
     }
 
-    let base_ticker = parts[0].trim().to_uppercase();
-    let quote_ticker = parts[1].trim().to_uppercase();
+    // Parse and validate pair
+    let (base_ticker, quote_ticker) = price_service::parse_price_pair(args[0])?;
 
     // Get pool from context
     let pool = {
@@ -62,14 +62,14 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
             .clone()
     };
 
-    // Parse timeframe argument (default to 24h if not provided)
+    // Parse timeframe (default to 24h)
     let timeframe_arg = args.get(1).copied().unwrap_or("24h");
 
     // Call service to get price data
     let price_data = price_service::get_price(&pool, &base_ticker, &quote_ticker, timeframe_arg).await?;
 
     // Format footer text
-    let footer_text = format!("1 {} = {:.8} {} (Timeframe: {})", 
+    let footer_text = format!("1 {} = {:.2} {} (Timeframe: {})", 
         price_data.base_ticker,
         price_data.last_price, 
         price_data.quote_ticker,
@@ -85,14 +85,14 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
     // Add VWAP field if available
     let vwap_label = format!("VWAP ({})", price_data.timeframe);
     if let Some(vwap) = price_data.vwap {
-        embed = embed.field(&vwap_label, format!("**{:.8} {}**", vwap, price_data.quote_ticker), false);
+        embed = embed.field(&vwap_label, format!("**{:.2} {}**", vwap, price_data.quote_ticker), false);
     } else {
         embed = embed.field(&vwap_label, format!("No trades in {}", price_data.timeframe), false);
     }
 
     // Add Last Price field
     embed = embed
-        .field("Last Price", format!("**{:.8} {}**", price_data.last_price, price_data.quote_ticker), false)
+        .field("Last Price", format!("**{:.2} {}**", price_data.last_price, price_data.quote_ticker), false)
         .footer(CreateEmbedFooter::new(footer_text))
         .color(0x00ff00);
 
@@ -104,30 +104,20 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
     Ok(())
 }
 
-/// Generate and send a price chart for a currency pair
+/// Execute the price chart command
 async fn execute_chart(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), String> {
     tracing::info!("🎨 Chart command received from user {} with args: {:?}", msg.author.id, args);
     
     if args.is_empty() {
-        tracing::warn!("No arguments provided for chart command");
-        return Err("❌ Usage: `$price chart <base>/<quote> [timeframe]`\nTimeframes: 1d, 2d, 4d, 7d, 1w, 2w, 4w, 1M, 3M, 1y, all".to_string());
+        return Err("❌ Usage: `$price chart <base>/<quote> [timeframe]`".to_string());
     }
 
-    let pair_str = args[0];
-    tracing::info!("Parsing pair: {}", pair_str);
-    
-    let parts: Vec<&str> = pair_str.split('/').collect();
-    
-    if parts.len() != 2 {
-        tracing::warn!("Invalid pair format: {} (split into {} parts)", pair_str, parts.len());
-        return Err("❌ Invalid pair format. Use: `$price chart BASE/QUOTE [timeframe]`".to_string());
-    }
+    // Parse and validate pair
+    let (base_ticker, quote_ticker) = price_service::parse_price_pair(args[0])?;
 
-    let base_ticker = parts[0].trim().to_uppercase();
-    let quote_ticker = parts[1].trim().to_uppercase();
-    
-    // Parse timeframe argument (default to "all" if not provided)
+    // Parse timeframe (default to "all")
     let timeframe = args.get(1).copied().unwrap_or("all");
+    
     tracing::info!("Parsed pair: {} / {} with timeframe: {}", base_ticker, quote_ticker, timeframe);
 
     // Get pool from context
@@ -144,11 +134,10 @@ async fn execute_chart(ctx: &Context, msg: &Message, args: &[&str]) -> Result<()
         Ok(_) => tracing::debug!("Broadcast typing indicator"),
         Err(e) => {
             tracing::warn!("Failed to broadcast typing: {}", e);
-            // Continue anyway
         }
     };
 
-    // First verify currencies exist
+    // Verify currencies exist
     tracing::info!("Verifying currencies exist in database");
     
     let _base_currency = match crate::db::currency::get_currency_by_ticker(&pool, &base_ticker).await {
@@ -157,14 +146,10 @@ async fn execute_chart(ctx: &Context, msg: &Message, args: &[&str]) -> Result<()
             currency
         },
         Ok(None) => {
-            let msg_text = format!("❌ Base currency '{}' not found in database", base_ticker);
-            tracing::warn!("{}", msg_text);
-            return Err(msg_text);
+            return Err(format!("❌ Base currency '{}' not found in database", base_ticker));
         },
         Err(e) => {
-            let msg_text = format!("❌ Database error fetching {}: {}", base_ticker, e);
-            tracing::error!("{}", msg_text);
-            return Err(msg_text);
+            return Err(format!("❌ Database error fetching {}: {}", base_ticker, e));
         }
     };
 
@@ -174,28 +159,22 @@ async fn execute_chart(ctx: &Context, msg: &Message, args: &[&str]) -> Result<()
             currency
         },
         Ok(None) => {
-            let msg_text = format!("❌ Quote currency '{}' not found in database", quote_ticker);
-            tracing::warn!("{}", msg_text);
-            return Err(msg_text);
+            return Err(format!("❌ Quote currency '{}' not found in database", quote_ticker));
         },
         Err(e) => {
-            let msg_text = format!("❌ Database error fetching {}: {}", quote_ticker, e);
-            tracing::error!("{}", msg_text);
-            return Err(msg_text);
+            return Err(format!("❌ Database error fetching {}: {}", quote_ticker, e));
         }
     };
 
-    // Try to get price history to verify data exists
+    // Get price history to verify data exists
     tracing::info!("Fetching price history for {}/{}", base_ticker, quote_ticker);
     let _price_history = match chart_service::get_price_history(&pool, &base_ticker, &quote_ticker).await {
         Ok(history) => {
             let count = history.len();
             tracing::info!("✓ Found {} price points for {}/{}", count, base_ticker, quote_ticker);
             if count < 2 {
-                let msg_text = format!("❌ Not enough price data for {}/{} ({} point(s) found, need at least 2)", 
-                    base_ticker, quote_ticker, count);
-                tracing::warn!("{}", msg_text);
-                return Err(msg_text);
+                return Err(format!("❌ Not enough price data for {}/{} ({} point(s) found, need at least 2)", 
+                    base_ticker, quote_ticker, count));
             }
             history
         },
@@ -210,9 +189,7 @@ async fn execute_chart(ctx: &Context, msg: &Message, args: &[&str]) -> Result<()
     let chart_data = match chart_service::generate_chart_with_timeframe(&pool, &base_ticker, &quote_ticker, timeframe, 1024, 768).await {
         Ok(data) => {
             if data.is_empty() {
-                let msg_text = "❌ Chart generation failed: produced empty image data".to_string();
-                tracing::error!("{}", msg_text);
-                return Err(msg_text);
+                return Err("❌ Chart generation failed: produced empty image data".to_string());
             }
             tracing::info!("✓ Chart generated successfully: {} bytes", data.len());
             data
@@ -223,31 +200,27 @@ async fn execute_chart(ctx: &Context, msg: &Message, args: &[&str]) -> Result<()
         }
     };
 
-    // Create a unique temporary file for the chart with descriptive name
+    // Create temporary file for the chart
     let filename = format!("chart_{}_{}_{}_.png", base_ticker, quote_ticker, timeframe);
     let temp_path = format!("/tmp/{}", filename);
     tracing::debug!("Writing chart to: {}", temp_path);
     
-    // Write chart data to temporary file
+    // Write chart data
     match fs::write(&temp_path, &chart_data) {
         Ok(_) => tracing::debug!("✓ Chart file written successfully"),
         Err(e) => {
-            let msg_text = format!("Failed to write chart file: {}", e);
-            tracing::error!("{}", msg_text);
-            return Err(msg_text);
+            return Err(format!("Failed to write chart file: {}", e));
         }
     };
     
-    // Verify file was written
+    // Verify file exists
     let file_size = chart_data.len();
     if !std::path::Path::new(&temp_path).exists() {
-        let msg_text = format!("❌ Chart file was not created at {}", temp_path);
-        tracing::error!("{}", msg_text);
-        return Err(msg_text);
+        return Err(format!("❌ Chart file was not created at {}", temp_path));
     }
     tracing::debug!("✓ File exists: {} ({} bytes)", temp_path, file_size);
     
-    // Create attachment from file path
+    // Create attachment
     tracing::info!("Creating attachment from file: {}", temp_path);
     let attachment = match serenity::all::CreateAttachment::path(&temp_path).await {
         Ok(att) => {
@@ -255,29 +228,24 @@ async fn execute_chart(ctx: &Context, msg: &Message, args: &[&str]) -> Result<()
             att
         },
         Err(e) => {
-            let msg_text = format!("Failed to create attachment: {}", e);
-            tracing::error!("{}", msg_text);
-            return Err(msg_text);
+            return Err(format!("Failed to create attachment: {}", e));
         }
     };
     
-    // Create the message with just the file attachment (no embed)
+    // Send message with attachment
     tracing::info!("Sending chart message to channel {}", msg.channel_id);
-    let message = serenity::builder::CreateMessage::default()
-        .add_file(attachment);
+    let message = serenity::builder::CreateMessage::default().add_file(attachment);
     
     match msg.channel_id.send_message(ctx, message).await {
         Ok(_) => {
             tracing::info!("✓✓✓ Chart message sent successfully for pair {}/{} ({} bytes)", base_ticker, quote_ticker, file_size);
         },
         Err(e) => {
-            let msg_text = format!("Failed to send chart: {}", e);
-            tracing::error!("{}", msg_text);
-            return Err(msg_text);
+            return Err(format!("Failed to send chart: {}", e));
         }
     };
     
-    // Clean up temporary file after a brief delay to ensure Discord has received it
+    // Clean up temporary file
     let temp_path_clone = temp_path.clone();
     tokio::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -286,6 +254,55 @@ async fn execute_chart(ctx: &Context, msg: &Message, args: &[&str]) -> Result<()
             Err(e) => tracing::warn!("Failed to delete temporary chart file {}: {}", temp_path_clone, e),
         }
     });
+
+    Ok(())
+}
+
+/// Execute the price list command
+async fn execute_list(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), String> {
+    tracing::info!("💹 Price list command called with args: {:?}", args);
+    
+    // Get pool from context
+    let pool = {
+        let data = ctx.data.read().await;
+        data.get::<crate::DatabasePool>()
+            .ok_or("Database not initialized".to_string())?
+            .clone()
+    };
+
+    // Parse arguments
+    let (filter_base, filter_quote, page_num) = price_service::parse_price_list_args(args);
+
+    // Get prices from service
+    let prices = price_service::get_price_list(
+        &pool,
+        filter_base.as_deref(),
+        filter_quote.as_deref(),
+    )
+    .await?;
+
+    if prices.is_empty() {
+        return Err("❌ No price data found".to_string());
+    }
+
+    // Format page and get description
+    let items_per_page = 10;
+    let (description, page_num, total_pages) = price_service::format_price_list_page(&prices, page_num, items_per_page)?;
+
+    // Create embed
+    let embed = serenity::builder::CreateEmbed::default()
+        .title("💹 Price List")
+        .description(description)
+        .footer(CreateEmbedFooter::new(format!(
+            "Page {}/{}",
+            page_num, total_pages
+        )))
+        .color(0x00ff00);
+
+    msg.channel_id
+        .send_message(ctx, serenity::builder::CreateMessage::default().embed(embed))
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }

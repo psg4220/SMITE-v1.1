@@ -200,3 +200,52 @@ pub async fn calculate_vwap(
         None => Ok(None),
     }
 }
+
+/// Get all latest prices, optionally filtered by base or quote ticker
+/// Returns: Vec<(base_ticker, quote_ticker, price)>
+/// If filter_base is Some("ABC"), returns all pairs like ABC/XYZ
+/// If filter_quote is Some("XYZ"), returns all pairs like ABC/XYZ
+/// If both are None, returns all pairs sorted by most recent
+pub async fn get_latest_prices_with_filter(
+    pool: &MySqlPool,
+    filter_base: Option<&str>,
+    filter_quote: Option<&str>,
+) -> Result<Vec<(String, String, f64)>, sqlx::Error> {
+    let mut query = String::from(
+        "SELECT 
+            c1.ticker as base_ticker,
+            c2.ticker as quote_ticker,
+            (SELECT CAST(price AS CHAR) FROM tradelog 
+             WHERE base_currency_id = tl.base_currency_id 
+             AND quote_currency_id = tl.quote_currency_id 
+             ORDER BY date_created DESC LIMIT 1) as latest_price,
+            MAX(tl.date_created) as max_date
+         FROM tradelog tl
+         JOIN currency c1 ON tl.base_currency_id = c1.id
+         JOIN currency c2 ON tl.quote_currency_id = c2.id
+         WHERE 1=1"
+    );
+
+    if let Some(base) = filter_base {
+        query.push_str(&format!(" AND c1.ticker = UPPER('{}')", base.to_uppercase()));
+    }
+
+    if let Some(quote) = filter_quote {
+        query.push_str(&format!(" AND c2.ticker = UPPER('{}')", quote.to_uppercase()));
+    }
+
+    query.push_str(" GROUP BY tl.base_currency_id, tl.quote_currency_id ORDER BY max_date DESC");
+
+    let rows = sqlx::query(&query).fetch_all(pool).await?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            let base_ticker: String = row.get(0);
+            let quote_ticker: String = row.get(1);
+            let price_str: String = row.get(2);
+            let price = price_str.parse::<f64>().ok()?;
+            Some((base_ticker, quote_ticker, price))
+        })
+        .collect())
+}

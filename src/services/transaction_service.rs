@@ -25,57 +25,67 @@ pub async fn get_transaction_list_for_pagination(
         .map_err(|e| format!("Failed to fetch transactions: {}", e))
 }
 
-/// Create paginated embeds for transactions (10 per page)
+/// Create paginated embeds for transactions (10 per page) - with OFFSET/LIMIT
 pub async fn create_transaction_pages(
     pool: &MySqlPool,
     user_id: i64,
-) -> Result<Vec<CreateEmbed>, String> {
-    let transactions = get_transaction_list_for_pagination(pool, user_id).await?;
+    page: usize,
+) -> Result<(Vec<CreateEmbed>, usize), String> {
+    const TRANSACTIONS_PER_PAGE: usize = 10;
+    
+    // Fetch paginated transactions from database
+    let (transactions, total_count) = db::transaction::get_user_transactions_paginated(pool, user_id, page, TRANSACTIONS_PER_PAGE)
+        .await
+        .map_err(|e| format!("Failed to fetch transactions: {}", e))?;
 
-    if transactions.is_empty() {
+    let total_pages = (total_count as usize + TRANSACTIONS_PER_PAGE - 1) / TRANSACTIONS_PER_PAGE;
+    
+    let mut pages = Vec::new();
+
+    if transactions.is_empty() && page == 1 {
         let embed = CreateEmbed::default()
             .title("📋 Transaction History")
             .description("No transactions found")
             .color(0xffa500);
-        return Ok(vec![embed]);
-    }
-
-    let mut pages = Vec::new();
-    const TRANSACTIONS_PER_PAGE: usize = 10;
-
-    for (page_idx, chunk) in transactions.chunks(TRANSACTIONS_PER_PAGE).enumerate() {
-        let mut description = String::new();
-
-        for tx in chunk {
-            // tx is (sender_id, receiver_id, amount, date, uuid, currency_ticker)
-            let sender_discord_id = db::account::get_discord_id_by_account_id(pool, tx.0)
-                .await
-                .unwrap_or(None)
-                .unwrap_or(tx.0);
-            let receiver_discord_id = db::account::get_discord_id_by_account_id(pool, tx.1)
-                .await
-                .unwrap_or(None)
-                .unwrap_or(tx.1);
-
-            description.push_str(&format!(
-                "<@{}> → <@{}> | `{:.2} {}`\n",
-                sender_discord_id, receiver_discord_id, tx.2, tx.5
-            ));
-            description.push_str(&format!("└─ `{}`\n\n", tx.4));
-        }
-
-        let embed = CreateEmbed::default()
-            .title("📋 Transaction History")
-            .description(description)
-            .footer(serenity::builder::CreateEmbedFooter::new(
-                format!("Page {} of {}", page_idx + 1, (transactions.len() + TRANSACTIONS_PER_PAGE - 1) / TRANSACTIONS_PER_PAGE)
-            ))
-            .color(0x00ff00);
-
         pages.push(embed);
+        return Ok((pages, total_pages));
     }
 
-    Ok(pages)
+    if transactions.is_empty() {
+        return Err(format!("❌ Invalid page number. This command has {} page(s)", total_pages));
+    }
+
+    let mut description = String::new();
+
+    for tx in &transactions {
+        // tx is (sender_id, receiver_id, amount, date, uuid, currency_ticker)
+        let sender_discord_id = db::account::get_discord_id_by_account_id(pool, tx.0)
+            .await
+            .unwrap_or(None)
+            .unwrap_or(tx.0);
+        let receiver_discord_id = db::account::get_discord_id_by_account_id(pool, tx.1)
+            .await
+            .unwrap_or(None)
+            .unwrap_or(tx.1);
+
+        description.push_str(&format!(
+            "<@{}> → <@{}> | `{:.2} {}`\n",
+            sender_discord_id, receiver_discord_id, tx.2, tx.5
+        ));
+        description.push_str(&format!("└─ `{}`\n\n", tx.4));
+    }
+
+    let embed = CreateEmbed::default()
+        .title("📋 Transaction History")
+        .description(description)
+        .footer(serenity::builder::CreateEmbedFooter::new(
+            format!("Page {}/{} ({} total transactions)", page, total_pages, total_count)
+        ))
+        .color(0x00ff00);
+
+    pages.push(embed);
+
+    Ok((pages, total_pages))
 }
 
 /// Get formatted transaction list (top 10 most recent)

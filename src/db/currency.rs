@@ -89,3 +89,38 @@ pub async fn get_currencies_by_guild_sorted(
         .fetch_all(pool)
         .await
 }
+
+/// Get paginated currencies (all currencies) with optional sorting
+/// sort_by: "oldest" (default) or "recent"
+/// Returns: (currencies, total_count)
+pub async fn get_currencies_paginated(
+    pool: &MySqlPool,
+    sort_by: &str,
+    page: usize,
+    page_size: usize,
+) -> Result<(Vec<(i64, String, String)>, i64), sqlx::Error> {
+    // Get total count
+    let count_row = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM currency"
+    )
+    .fetch_one(pool)
+    .await?;
+
+    // Calculate offset
+    let offset = (page - 1) * page_size;
+
+    // Get paginated results
+    let query = if sort_by.to_lowercase() == "recent" {
+        "SELECT id, name, ticker FROM currency ORDER BY date_created DESC LIMIT ? OFFSET ?"
+    } else {
+        "SELECT id, name, ticker FROM currency ORDER BY date_created ASC LIMIT ? OFFSET ?"
+    };
+
+    let currencies = sqlx::query_as::<_, (i64, String, String)>(query)
+        .bind(page_size as i64)
+        .bind(offset as i64)
+        .fetch_all(pool)
+        .await?;
+
+    Ok((currencies, count_row))
+}

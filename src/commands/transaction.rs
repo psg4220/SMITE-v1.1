@@ -1,7 +1,6 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use crate::services::transaction_service;
-use crate::utils::page::Page;
 
 pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), String> {
     if args.is_empty() {
@@ -42,22 +41,6 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
 
     match args[0].to_lowercase().as_str() {
         "list" => {
-            let pages = transaction_service::create_transaction_pages(&pool, user_id)
-                .await?;
-
-            if pages.is_empty() {
-                let embed = serenity::builder::CreateEmbed::default()
-                    .title("📋 Transaction History")
-                    .description("No transactions found")
-                    .color(0xffa500);
-
-                msg.channel_id
-                    .send_message(ctx, serenity::builder::CreateMessage::default().embed(embed))
-                    .await
-                    .map_err(|e| e.to_string())?;
-                return Ok(());
-            }
-
             // Check if page number is specified (e.g., "p2" or "2")
             let mut page_num = 1;
             if args.len() > 1 {
@@ -72,19 +55,35 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
                     .map_err(|_| "Invalid page number. Use: `$transaction list` or `$transaction list p2`".to_string())?;
             }
 
-            // Validate page number
-            if page_num < 1 || page_num > pages.len() {
-                return Err(format!("❌ Page {} does not exist. Available pages: 1-{}", page_num, pages.len()));
+            // Fetch the requested page
+            let (mut embeds, total_pages) = transaction_service::create_transaction_pages(&pool, user_id, page_num)
+                .await?;
+
+            if embeds.is_empty() {
+                let embed = serenity::builder::CreateEmbed::default()
+                    .title("📋 Transaction History")
+                    .description("No transactions found")
+                    .color(0xffa500);
+
+                msg.channel_id
+                    .send_message(ctx, serenity::builder::CreateMessage::default().embed(embed))
+                    .await
+                    .map_err(|e| e.to_string())?;
+                return Ok(());
             }
 
-            // Create pagination object and set to requested page
-            let mut pagination = Page::new(pages);
-            if page_num > 1 {
-                pagination.current_page = page_num - 1;
+            // Add page navigation info to footer if multiple pages exist
+            if total_pages > 1 {
+                embeds[0] = embeds[0].clone().footer(
+                    serenity::builder::CreateEmbedFooter::new(
+                        format!("Page {}/{}", page_num, total_pages)
+                    )
+                );
             }
 
+            // Send the embed for the requested page
             msg.channel_id
-                .send_message(ctx, pagination.create_message())
+                .send_message(ctx, serenity::builder::CreateMessage::default().embed(embeds[0].clone()))
                 .await
                 .map_err(|e| e.to_string())?;
         }
