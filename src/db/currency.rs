@@ -70,3 +70,22 @@ pub async fn get_currency_date(
 
     Ok(row.map(|r| r.get::<String, _>("date_str")))
 }
+
+/// Get all currencies for a guild with optional sorting
+/// sort_by: "oldest" (default) or "recent"
+pub async fn get_currencies_by_guild_sorted(
+    pool: &MySqlPool,
+    guild_id: i64,
+    sort_by: &str,
+) -> Result<Vec<(i64, String, String)>, sqlx::Error> {
+    let query = if sort_by.to_lowercase() == "recent" {
+        "SELECT id, name, ticker FROM currency WHERE guild_id = ? ORDER BY date_created DESC"
+    } else {
+        "SELECT id, name, ticker FROM currency WHERE guild_id = ? ORDER BY date_created ASC"
+    };
+
+    sqlx::query_as::<_, (i64, String, String)>(query)
+        .bind(guild_id)
+        .fetch_all(pool)
+        .await
+}

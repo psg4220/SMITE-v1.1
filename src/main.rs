@@ -27,6 +27,12 @@ impl TypeMapKey for DatabasePool {
     type Value = MySqlPool;
 }
 
+struct CommandPrefix;
+
+impl TypeMapKey for CommandPrefix {
+    type Value = String;
+}
+
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, ctx: Context, msg: Message) {
@@ -94,6 +100,10 @@ async fn main() {
     };
     
     let token = std::env::var("DISCORD_TOKEN").expect("DISCORD_TOKEN not set");
+    let prefix = std::env::var("PREFIX").unwrap_or_else(|_| "$".to_string());
+    
+    info!("Using command prefix: '{}'", prefix);
+    
     let intents = GatewayIntents::DIRECT_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT
         | GatewayIntents::GUILD_MESSAGES;
@@ -103,11 +113,12 @@ async fn main() {
         .await
         .expect("Failed to create client");
 
-    // Store the start time and database pool in client data
+    // Store the start time, database pool, and prefix in client data
     {
         let mut data = client.data.write().await;
         data.insert::<BotData>(Instant::now());
         data.insert::<DatabasePool>(pool);
+        data.insert::<CommandPrefix>(prefix);
     }
 
     if let Err(e) = client.start().await {

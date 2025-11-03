@@ -8,6 +8,7 @@ pub mod transaction;
 pub mod price;
 pub mod tax;
 pub mod info;
+pub mod board;
 
 
 use serenity::model::channel::Message;
@@ -19,8 +20,21 @@ pub async fn handle_message(ctx: &Context, msg: &Message) {
         return;
     }
 
+    // Get prefix from context
+    let prefix = {
+        let data = ctx.data.read().await;
+        data.get::<crate::CommandPrefix>()
+            .map(|p| p.clone())
+            .unwrap_or_else(|| "$".to_string())
+    };
+
     let content = &msg.content;
     let user_id = msg.author.id;
+
+    // Check if message starts with the prefix
+    if !content.starts_with(&prefix) {
+        return;
+    }
 
     // Check global rate limit first (50 requests per second across all users)
     if let Err(remaining_ms) = crate::utils::check_global_rate_limit().await {
@@ -62,26 +76,34 @@ pub async fn handle_message(ctx: &Context, msg: &Message) {
         return;
     }
 
-    let command = parts[0];
+    let command_with_prefix = parts[0];
     let args = &parts[1..];
 
-    let result = match command {
-        "$ping" => ping::execute(ctx, msg).await,
-        "$send" | "$transfer" => send::execute(ctx, msg, args).await,
-        "$balance" | "$bal" => balance::execute(ctx, msg, args).await,
-        "$swap" | "$trade" => swap::execute(ctx, msg, args).await,
-        "$mint" | "$print" | "$issue" => mint::execute(ctx, msg, args).await,
-        "$create_currency" | "$cc" => create_currency::execute(ctx, msg, args).await,
-        "$transaction" | "$tr" => transaction::execute(ctx, msg, args).await,
-        "$price" => price::execute(ctx, msg, args).await,
-        "$tax" => tax::execute(ctx, msg, args).await,
-        "$info" => info::execute(ctx, msg, args).await,
+    // Remove prefix from command
+    let command_name = if command_with_prefix.starts_with(&prefix) {
+        &command_with_prefix[prefix.len()..]
+    } else {
+        return;
+    };
+
+    let result = match command_name {
+        "ping" => ping::execute(ctx, msg).await,
+        "send" | "transfer" => send::execute(ctx, msg, args).await,
+        "balance" | "bal" => balance::execute(ctx, msg, args).await,
+        "swap" | "trade" => swap::execute(ctx, msg, args).await,
+        "mint" | "print" | "issue" => mint::execute(ctx, msg, args).await,
+        "create_currency" | "cc" => create_currency::execute(ctx, msg, args).await,
+        "transaction" | "tr" => transaction::execute(ctx, msg, args).await,
+        "price" => price::execute(ctx, msg, args).await,
+        "tax" => tax::execute(ctx, msg, args).await,
+        "info" => info::execute(ctx, msg, args).await,
+        "board" | "list" | "ls" => board::execute(ctx, msg, args).await,
         _ => return,
     };
 
     if let Err(e) = result {
         let error_msg = e.to_string();
-        error!("Error executing command {}: {}", command, error_msg);
+        error!("Error executing command {}: {}", command_name, error_msg);
         
         // Extract clean error message from database errors
         // Pattern: "error returned from database: 1644 (45000): Insufficient balance to accept swap"

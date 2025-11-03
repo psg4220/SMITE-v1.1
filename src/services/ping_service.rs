@@ -3,12 +3,11 @@ use std::time::Instant;
 
 pub struct PingMetrics {
     pub response_latency: u64,
-    pub response_roundtrip: u64,
     pub uptime: String,
 }
 
 pub async fn get_ping_metrics(ctx: &Context, start_time: Instant) -> Result<PingMetrics, String> {
-    let response_roundtrip = start_time.elapsed().as_millis() as u64;
+    let response_latency = start_time.elapsed().as_millis() as u64;
     
     // Get bot uptime from client data
     let uptime = {
@@ -25,8 +24,7 @@ pub async fn get_ping_metrics(ctx: &Context, start_time: Instant) -> Result<Ping
     };
 
     Ok(PingMetrics {
-        response_latency: response_roundtrip,
-        response_roundtrip,
+        response_latency,
         uptime,
     })
 }
@@ -35,7 +33,6 @@ pub fn create_ping_embed(metrics: &PingMetrics) -> serenity::builder::CreateEmbe
     serenity::builder::CreateEmbed::default()
         .title("Pong! 🏓")
         .field("Response Latency", format!("{}ms", metrics.response_latency), true)
-        .field("Response Roundtrip", format!("{}ms", metrics.response_roundtrip), true)
         .field("Uptime", &metrics.uptime, false)
         .color(0x00b0f4)
 }
