@@ -3,10 +3,8 @@ pub mod page;
 pub mod errors;
 pub mod ratelimit;
 
-pub use table::Table;
-pub use page::Page;
 pub use errors::extract_clean_error;
-pub use ratelimit::{check_cooldown, check_global_rate_limit, get_cooldown_seconds};
+pub use ratelimit::{check_cooldown, check_global_rate_limit};
 
 /// Check if a user has required roles in a guild (case-insensitive)
 /// Special behavior for "admin" role: checks Discord ADMINISTRATOR permission instead of role name
