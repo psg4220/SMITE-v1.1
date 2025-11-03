@@ -9,7 +9,8 @@ pub use errors::extract_clean_error;
 pub use ratelimit::{check_cooldown, check_global_rate_limit, get_cooldown_seconds};
 
 /// Check if a user has required roles in a guild (case-insensitive)
-/// Automatically grants "admin" to guild owner
+/// Special behavior for "admin" role: checks Discord ADMINISTRATOR permission instead of role name
+/// Other roles (minter, tax collector, etc.) are checked by name only
 pub async fn check_user_roles(
     ctx: &serenity::prelude::Context,
     guild_id: serenity::model::prelude::GuildId,
@@ -17,6 +18,7 @@ pub async fn check_user_roles(
     required_roles: &[&str],
 ) -> Result<(), String> {
     use tracing::debug;
+    use serenity::model::permissions::Permissions;
 
     // Fetch Member via HTTP API
     let member = match guild_id.member(&ctx.http, user_id).await {
@@ -69,32 +71,88 @@ pub async fn check_user_roles(
     
     debug!("Guild owner ID: {}, User ID: {}, Is owner: {}", guild.owner_id.get(), user_id.get(), user_id.get() == guild.owner_id.get());
     
-    if user_id.get() == guild.owner_id.get() {
-        debug!("User is guild owner, granting admin role");
-        user_roles.push("Admin".to_string());
+    let is_guild_owner = user_id.get() == guild.owner_id.get();
+    if is_guild_owner {
+        debug!("User is guild owner, granting admin permission");
+        user_roles.push("__ADMIN_PERMISSION__".to_string()); // Special marker
     }
 
-    debug!("Final user roles: {:?}", user_roles);
-    debug!("Required roles: {:?}", required_roles);
+    // Check if "admin" is in required roles
+    let admin_required = required_roles.iter().any(|r| r.to_lowercase() == "admin");
+    
+    if admin_required {
+        // For admin requirement, check Discord ADMINISTRATOR permission
+        // Get all guild roles to check permissions
+        let guild_roles = guild_id
+            .roles(&ctx.http)
+            .await
+            .map_err(|e| format!("Failed to get guild roles: {}", e))?;
+        
+        // Check if any of the member's roles have ADMINISTRATOR permission
+        let has_admin_permission = member.roles.iter().any(|role_id| {
+            if let Some(role) = guild_roles.get(role_id) {
+                role.permissions.contains(Permissions::ADMINISTRATOR)
+            } else {
+                false
+            }
+        });
 
-    // Check if user has "Admin" role (case-insensitive) - if so, they pass all checks
-    if user_roles.iter().any(|r| r.to_lowercase() == "admin") {
-        debug!("User has admin role, granting access");
-        return Ok(());
-    }
+        debug!("User has admin permission via role: {}", has_admin_permission);
 
-    // Check if user has any of the required roles (case-insensitive)
-    let has_required_role = required_roles
-        .iter()
-        .any(|req_role| user_roles.iter().any(|ur| ur.to_lowercase() == req_role.to_lowercase()));
+        if has_admin_permission {
+            debug!("User has ADMINISTRATOR permission");
+            return Ok(());
+        }
 
-    debug!("User has required role: {}", has_required_role);
+        // If admin not required by permission but is required by role name, return error
+        if user_roles.iter().any(|r| r == "__ADMIN_PERMISSION__") {
+            // User is guild owner (implicit admin)
+            return Ok(());
+        }
 
-    if !has_required_role {
+        // Admin permission not found, check if other required roles are met
+        let other_required_roles: Vec<&str> = required_roles
+            .iter()
+            .filter(|r| r.to_lowercase() != "admin")
+            .copied()
+            .collect();
+
+        if !other_required_roles.is_empty() {
+            // Check other roles
+            let has_required_role = other_required_roles
+                .iter()
+                .any(|req_role| user_roles.iter().any(|ur| ur.to_lowercase() == req_role.to_lowercase()));
+
+            debug!("User has required alternative role: {}", has_required_role);
+
+            if has_required_role {
+                return Ok(());
+            }
+        }
+
+        // No admin permission and no alternative roles found
         return Err(format!(
-            "You need one of these roles to use this command: {}",
+            "You need ADMINISTRATOR permission or one of these roles to use this command: {}",
             required_roles.join(", ")
         ));
+    } else {
+        // "admin" not required, just check by role name
+        debug!("Final user roles: {:?}", user_roles);
+        debug!("Required roles: {:?}", required_roles);
+
+        // Check if user has any of the required roles (case-insensitive)
+        let has_required_role = required_roles
+            .iter()
+            .any(|req_role| user_roles.iter().any(|ur| ur.to_lowercase() == req_role.to_lowercase()));
+
+        debug!("User has required role: {}", has_required_role);
+
+        if !has_required_role {
+            return Err(format!(
+                "You need one of these roles to use this command: {}",
+                required_roles.join(", ")
+            ));
+        }
     }
 
     Ok(())
