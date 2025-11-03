@@ -9,6 +9,7 @@ pub mod price;
 pub mod tax;
 pub mod info;
 pub mod board;
+pub mod help;
 
 
 use serenity::model::channel::Message;
@@ -88,6 +89,7 @@ pub async fn handle_message(ctx: &Context, msg: &Message) {
 
     let result = match command_name {
         "ping" => ping::execute(ctx, msg).await,
+        "help" => help::execute(ctx, msg).await,
         "send" | "transfer" => send::execute(ctx, msg, args).await,
         "balance" | "bal" => balance::execute(ctx, msg, args).await,
         "swap" | "trade" => swap::execute(ctx, msg, args).await,
