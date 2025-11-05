@@ -116,4 +116,31 @@ CREATE TABLE IF NOT EXISTS tax_account (
         ON DELETE CASCADE ON UPDATE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS api_type (
+    id TINYINT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(64) NOT NULL,
+    date_created DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS api_token (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    currency_id BIGINT NOT NULL,
+    type TINYINT NOT NULL,
+    encrypted_token LONGTEXT NOT NULL,
+    date_created DATETIME DEFAULT CURRENT_TIMESTAMP,
+    date_updated DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_api_token_currency (currency_id),
+    INDEX idx_api_token_type (type),
+    
+    CONSTRAINT fk_api_token_currency
+        FOREIGN KEY (currency_id)
+        REFERENCES currency(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_api_token_type
+        FOREIGN KEY (type)
+        REFERENCES api_type(id)
+        ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
 SET FOREIGN_KEY_CHECKS=1;

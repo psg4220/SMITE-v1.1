@@ -33,6 +33,14 @@ pub async fn execute_create_currency(
         ));
     }
 
+    // Validate ticker characters (must be A-Z only)
+    if ticker.chars().any(|c| !c.is_ascii_alphabetic()) {
+        return Err(format!(
+            "Currency ticker must only contain alphabetic characters (A-Z), but got '{}'",
+            ticker
+        ));
+    }
+
     // Convert ticker to uppercase
     let ticker_upper = ticker.to_uppercase();
 
