@@ -10,16 +10,25 @@ pub struct WireResult {
     pub ub_balance: i64,
 }
 
-/// Set UnbelievaBoat API token for a currency (admin only)
+/// Set UnbelievaBoat API token for a currency (admin only, DM-only for security)
+/// User must have admin permissions in the target guild
 pub async fn set_api_token(
     ctx: &Context,
     msg: &Message,
+    guild_id_arg: Option<u64>,
     token: &str,
 ) -> Result<(), WireError> {
-    let guild_id = msg
-        .guild_id
-        .ok_or(WireError::InvalidConfig("Token management is guild-only.".to_string()))?
-        .get() as i64;
+    // Determine guild ID - must be provided since command is DM-only
+    let guild_id = guild_id_arg
+        .ok_or(WireError::InvalidConfig(
+            "Guild ID is required. Use: `$wire set token <guild_id> <token>`".to_string()
+        ))? as i64;
+
+    // Verify user has admin permissions in the target guild
+    let target_guild_id = serenity::model::prelude::GuildId::new(guild_id as u64);
+    crate::utils::check_user_roles(ctx, target_guild_id, msg.author.id, &["admin"])
+        .await
+        .map_err(|e| WireError::InvalidConfig(e))?;
 
     // Get pool from context
     let pool = {

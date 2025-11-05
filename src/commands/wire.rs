@@ -10,18 +10,19 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
             .field("Usage",
                 "`$wire in <amount> <currency>` - Transfer from UnbelievaBoat to SMITE\n\
                  `$wire out <amount> <currency>` - Transfer from SMITE to UnbelievaBoat\n\
-                 `$wire set token <token>` - Set UnbelievaBoat API token (admin only, guild only)",
+                 `$wire set token <guild_id> <token>` - Set API token (DM only, admin verification)",
                 false)
             .field("Examples",
                 "`$wire in 100 ABC` - Remove 100 ABC from UnbelievaBoat, add to SMITE account\n\
                  `$wire out 100 ABC` - Remove 100 ABC from SMITE account, add to UnbelievaBoat\n\
-                 `$wire set token sk_live_xxx...` - Store encrypted token (admin only)",
+                 `$wire set token 905861000593539153 sk_live_xxx...` - Store token securely in DM",
                 false)
             .field("Notes",
                 "• `wire in/out` works in DMs or guilds\n\
+                 • `wire set token` works **ONLY in DMs** (for security)\n\
                  • Cannot go negative on either side\n\
                  • Currency must exist in SMITE\n\
-                 • Token management requires admin role (guild only)",
+                 • User must have admin role in the target guild",
                 false)
             .color(0x00b0f4);
 
@@ -32,27 +33,33 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
         return Ok(());
     }
 
-    // Handle token setting (admin only, guild only)
+    // Handle token setting (admin only, DM-based for security)
     if args[0] == "set" {
-        if args.len() < 3 || args[1] != "token" {
-            return Err("❌ Usage: `$wire set token <token>`".to_string());
+        // Check if command is in DM
+        if msg.guild_id.is_some() {
+            return Err("❌ Token setting is only allowed in DMs for security reasons.\n\
+                        Use: `$wire set token <guild_id> <token>` in a DM".to_string());
         }
 
-        let guild_id = msg
-            .guild_id
-            .ok_or("Token management is guild-only. Use this command in a guild.".to_string())?;
+        if args.len() < 3 || args[1] != "token" {
+            return Err("❌ Usage (DM only): `$wire set token <guild_id> <token>`".to_string());
+        }
 
-        // Check if user is admin
-        crate::utils::check_user_roles(ctx, guild_id, msg.author.id, &["admin"])
-            .await?;
+        // Parse guild_id from first argument
+        let guild_id_arg = args[2].parse::<u64>()
+            .map_err(|_| "❌ Invalid guild ID. Please provide a valid numeric guild ID.".to_string())?;
 
-        let token = args[2..].join(" ");
+        let token = args[3..].join(" ");
         
-        match wire_service::set_api_token(ctx, msg, &token).await {
+        if token.is_empty() {
+            return Err("❌ Token is missing. Provide the UnbelievaBoat API token.".to_string());
+        }
+
+        match wire_service::set_api_token(ctx, msg, Some(guild_id_arg), &token).await {
             Ok(_) => {
                 let embed = serenity::builder::CreateEmbed::default()
                     .title("✅ Token Set Successfully")
-                    .description("UnbelievaBoat API token has been encrypted and stored.")
+                    .description(format!("UnbelievaBoat API token has been encrypted and stored for guild `{}`.", guild_id_arg))
                     .color(0x00ff00);
 
                 msg.channel_id

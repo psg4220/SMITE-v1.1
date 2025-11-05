@@ -9,7 +9,7 @@ pub async fn execute(ctx: &Context, msg: &Message) -> Result<(), String> {
         .color(0x00b0f4)
         .field(
             "🎯 General",
-            "`$ping` - Check bot latency\n`$help` - Show this help message",
+            "`$ping` - Check bot latency and shard info\n`$help` - Show this help message",
             false,
         )
         .field(
@@ -19,7 +19,7 @@ pub async fn execute(ctx: &Context, msg: &Message) -> Result<(), String> {
         )
         .field(
             "💰 Balance & Accounts",
-            "`$balance [TICKER]` - Check your balance\n`$mint <amount> <TICKER>` - Mint currency (default: yourself, Minter/Admin)",
+            "`$balance [TICKER]` - Check your balance\n`$mint <@user> <amount> <TICKER>` - Mint currency (Minter/Admin)\n`$mint -s <amount> <TICKER>` - Set exact balance (Admin only)",
             false,
         )
         .field(
@@ -29,7 +29,7 @@ pub async fn execute(ctx: &Context, msg: &Message) -> Result<(), String> {
         )
         .field(
             "💱 Swaps & Trading",
-            "`$swap set <amount> <TICKER> [@user] [<amount> <TICKER>]` - Create swap offer\n`$swap list [status]` - View swaps\n`$swap accept <ID>` - Accept swap\n`$swap deny <ID>` - Reject swap",
+            "`$swap set <amount> <TICKER> [@user] [<amount> <TICKER>]` - Create swap offer\n`$swap list [status]` - View swaps (pending/accepted/all)\n`$swap accept <ID>` - Accept swap\n`$swap deny <ID>` - Reject swap",
             false,
         )
         .field(
@@ -48,8 +48,13 @@ pub async fn execute(ctx: &Context, msg: &Message) -> Result<(), String> {
             false,
         )
         .field(
-            "⚡ Rate Limiting",
-            "5-second cooldown per command per user\nGlobal 50 requests/second limit\nFor more info, visit the [documentation](https://github.com/psg4220/SMITE-v1.1/wiki/Commands).",
+            "⚡ Performance & Rate Limiting",
+            "🔹 **Autosharding**: Bot automatically scales across multiple shards\n🔹 **Per-user cooldown**: 5 seconds per command per user\n🔹 **Global rate limit**: 50 requests/second\n🔹 **UnbelievaBoat API**: Rate limited to 20 requests/second",
+            false,
+        )
+        .field(
+            "📚 More Information",
+            "Use `$ping` for latency and shard details\nVisit [documentation](https://github.com/psg4220/SMITE-v1.1/wiki/Commands) for detailed command info",
             false,
         );
 
