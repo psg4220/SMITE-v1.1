@@ -14,12 +14,20 @@ pub struct UnbelievaboatClient {
 }
 
 impl UnbelievaboatClient {
-    const DEFAULT_BASE_URL: &'static str = "https://api.unbelievaboat.com/v1";
+    const DEFAULT_BASE_URL: &'static str = "https://unbelievaboat.com/api/v1";
 
     /// Create a new Unbelievaboat API client
     pub fn new(api_token: String) -> Self {
+        // Create HTTP client with timeout settings
+        let http_client = HttpClient::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .pool_max_idle_per_host(1)
+            .build()
+            .unwrap_or_else(|_| HttpClient::new());
+        
         Self {
-            http_client: HttpClient::new(),
+            http_client,
             api_token,
             base_url: Self::DEFAULT_BASE_URL.to_string(),
         }
@@ -27,8 +35,16 @@ impl UnbelievaboatClient {
 
     /// Create a new client with custom base URL (for testing)
     pub fn with_base_url(api_token: String, base_url: String) -> Self {
+        // Create HTTP client with timeout settings
+        let http_client = HttpClient::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .pool_max_idle_per_host(1)
+            .build()
+            .unwrap_or_else(|_| HttpClient::new());
+        
         Self {
-            http_client: HttpClient::new(),
+            http_client,
             api_token,
             base_url,
         }
@@ -136,7 +152,7 @@ impl UnbelievaboatClient {
         guild_id: u64,
         user_id: u64,
     ) -> Result<BalanceResponse, ApiError> {
-        let url = format!("{}/users/{}/{}/balance", self.base_url, guild_id, user_id);
+        let url = format!("{}/guilds/{}/users/{}", self.base_url, guild_id, user_id);
         let headers = self.create_headers()
             .map_err(|e| ApiError::RequestError(e))?;
 
@@ -179,7 +195,7 @@ impl UnbelievaboatClient {
         cash: Option<i64>,
         bank: Option<i64>,
     ) -> Result<BalanceResponse, ApiError> {
-        let url = format!("{}/users/{}/{}/balance", self.base_url, guild_id, user_id);
+        let url = format!("{}/guilds/{}/users/{}", self.base_url, guild_id, user_id);
         let headers = self.create_headers()
             .map_err(|e| ApiError::RequestError(e))?;
 
@@ -225,7 +241,7 @@ impl UnbelievaboatClient {
         cash: Option<i64>,
         bank: Option<i64>,
     ) -> Result<BalanceResponse, ApiError> {
-        let url = format!("{}/users/{}/{}/balance", self.base_url, guild_id, user_id);
+        let url = format!("{}/guilds/{}/users/{}", self.base_url, guild_id, user_id);
         let headers = self.create_headers()
             .map_err(|e| ApiError::RequestError(e))?;
 

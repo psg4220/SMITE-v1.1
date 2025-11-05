@@ -101,13 +101,22 @@ pub async fn wire_in(
         "Wire operations in DMs require the currency to be global. Please use this command in a guild.".to_string()
     ))?;
 
+    // Rate limit API calls
+    crate::utils::rate_limit_ub_api().await;
+
     // Get current UnbelievaBoat balance
-    let ub_balance = ub_client
+    // If user doesn't exist in UnbelievaBoat (404 Not Found), treat as 0 balance
+    let ub_bank_amount = match ub_client
         .get_user_balance(guild_id, msg.author.id.get())
         .await
-        .map_err(|e| WireError::Api(format!("Failed to fetch UnbelievaBoat balance: {}", e)))?;
-
-    let ub_bank_amount = ub_balance.bank;
+    {
+        Ok(ub_balance) => ub_balance.bank,
+        Err(crate::api::unbelievaboat::models::ApiError::NotFound(_)) => {
+            // User doesn't exist in UnbelievaBoat yet - treat as 0 balance
+            0
+        }
+        Err(e) => return Err(WireError::Api(format!("Failed to fetch UnbelievaBoat balance: {}", e))),
+    };
 
     // Check if user has enough in UnbelievaBoat
     if ub_bank_amount < amount as i64 {
@@ -170,6 +179,9 @@ pub async fn wire_in(
     // COMMIT TRANSACTION before external API call
     tx.commit().await
         .map_err(|e| WireError::Transaction(format!("Failed to commit transaction: {}", e)))?;
+
+    // Rate limit API calls
+    crate::utils::rate_limit_ub_api().await;
 
     // NOW make external API call (outside transaction)
     let new_ub_bank = ub_bank_amount - amount as i64;
@@ -310,6 +322,9 @@ pub async fn wire_out(
         .map_err(|e| WireError::Transaction(format!("Failed to commit transaction: {}", e)))?;
 
     // NOW make external API call (outside transaction)
+    // Rate limit API calls
+    crate::utils::rate_limit_ub_api().await;
+    
     // Get current UnbelievaBoat balance
     let ub_balance = ub_client
         .get_user_balance(guild_id, msg.author.id.get())
@@ -318,6 +333,9 @@ pub async fn wire_out(
 
     let ub_bank_amount = ub_balance.bank;
     let new_ub_bank = ub_bank_amount + amount as i64;
+
+    // Rate limit API calls
+    crate::utils::rate_limit_ub_api().await;
 
     // Update UnbelievaBoat balance
     match ub_client

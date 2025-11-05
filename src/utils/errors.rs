@@ -47,19 +47,32 @@ pub enum WireError {
 }
 
 impl WireError {
+    /// Truncate message to fit Discord's 4096 character limit for embed descriptions
+    /// Leaves room for other text in the embed (approximately 3700 chars for error details)
+    fn truncate_for_embed(msg: &str, max_len: usize) -> String {
+        if msg.len() > max_len {
+            format!("{}... (truncated)", &msg[..max_len])
+        } else {
+            msg.to_string()
+        }
+    }
+
     /// Convert WireError to a colored Discord embed for user-facing errors
     pub fn to_embed(&self) -> serenity::builder::CreateEmbed {
         match self {
             WireError::Database(msg) => {
+                let truncated = Self::truncate_for_embed(msg, 3500);
                 serenity::builder::CreateEmbed::default()
                     .title("❌ Database Error")
-                    .description(format!("An internal database error occurred:\n```\n{}\n```", msg))
+                    .description(format!("An internal database error occurred:\n```\n{}\n```", truncated))
                     .color(0xff0000) // Red
             }
             WireError::Crypto(crypto_err) => {
+                let msg = crypto_err.to_string();
+                let truncated = Self::truncate_for_embed(&msg, 3500);
                 serenity::builder::CreateEmbed::default()
                     .title("🔐 Encryption Error")
-                    .description(format!("Failed to process security layer:\n```\n{}\n```", crypto_err))
+                    .description(format!("Failed to process security layer:\n```\n{}\n```", truncated))
                     .color(0xff8800) // Orange
             }
             WireError::Api(msg) => {
@@ -69,6 +82,7 @@ impl WireError {
                     (0xff8800, "⚠️ API Error") // Orange for other API errors
                 };
                 
+                let truncated = Self::truncate_for_embed(msg, 2500);
                 serenity::builder::CreateEmbed::default()
                     .title(title)
                     .description(format!(
@@ -76,35 +90,39 @@ impl WireError {
                         • Verify your API token is correct: `$wire set token <your_token>`\n\
                         • Check UnbelievaBoat server status\n\
                         • Try again in a few moments",
-                        msg
+                        truncated
                     ))
                     .color(color)
             }
             WireError::InsufficientBalance(msg) => {
+                let truncated = Self::truncate_for_embed(msg, 3500);
                 serenity::builder::CreateEmbed::default()
                     .title("💸 Insufficient Balance")
-                    .description(msg)
+                    .description(truncated)
                     .color(0xffaa00) // Yellow-orange
             }
             WireError::InvalidConfig(msg) => {
+                let truncated = Self::truncate_for_embed(msg, 3500);
                 serenity::builder::CreateEmbed::default()
                     .title("⚙️ Configuration Issue")
-                    .description(msg)
+                    .description(truncated)
                     .color(0xff8800) // Orange
             }
             WireError::Transaction(msg) => {
+                let truncated = Self::truncate_for_embed(msg, 3500);
                 serenity::builder::CreateEmbed::default()
                     .title("❌ Transaction Failed")
-                    .description(format!("Database transaction error:\n```\n{}\n```", msg))
+                    .description(format!("Database transaction error:\n```\n{}\n```", truncated))
                     .color(0xff0000) // Red
             }
             WireError::CompensationFailed(msg) => {
+                let truncated = Self::truncate_for_embed(msg, 3000);
                 serenity::builder::CreateEmbed::default()
                     .title("⚠️ Compensation Failed")
                     .description(format!(
                         "API failed AND automatic balance restoration failed. **Critical error**:\n```\n{}\n```\n\n\
                         ⚠️ **Please contact server administrators immediately!**",
-                        msg
+                        truncated
                     ))
                     .color(0xff0000) // Red
             }
