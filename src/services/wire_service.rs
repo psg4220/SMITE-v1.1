@@ -4,6 +4,7 @@ use crate::db;
 use crate::api::unbelievaboat::UnbelievaboatClient;
 use crate::utils::{encrypt_token, decrypt_token};
 use crate::utils::errors::WireError;
+use tracing;
 
 pub struct WireResult {
     pub smite_balance: f64,
@@ -83,13 +84,20 @@ pub async fn wire_in(
             .clone()
     };
 
-    // Verify currency exists in SMITE
-    let currency_data = db::currency::get_currency_by_ticker(&pool, currency_ticker)
+    // Verify currency exists in SMITE (including guild_id)
+    let (currency_id, currency_guild_id, _, _) = db::currency::get_currency_by_ticker_with_guild(&pool, currency_ticker)
         .await
         .map_err(|e| WireError::Database(format!("Database error: {}", e)))?
         .ok_or(WireError::InvalidConfig(format!("Currency {} not found in SMITE", currency_ticker)))?;
 
-    let currency_id = currency_data.0;
+    // Verify the currency belongs to this guild (if command is in a guild)
+    if let Some(cmd_guild_id) = guild_id {
+        if currency_guild_id != cmd_guild_id as i64 {
+            return Err(WireError::InvalidConfig(
+                format!("Currency {} does not belong to this guild", currency_ticker)
+            ));
+        }
+    }
 
     // Get UnbelievaBoat API token from database
     let encrypted_token = db::api::get_api_token(&pool, currency_id, 1)
@@ -105,10 +113,9 @@ pub async fn wire_in(
     // Initialize UnbelievaBoat client
     let ub_client = UnbelievaboatClient::new(ub_token);
 
-    // Need guild_id for UnbelievaBoat API
-    let guild_id = guild_id.ok_or(WireError::InvalidConfig(
-        "Wire operations in DMs require the currency to be global. Please use this command in a guild.".to_string()
-    ))?;
+    // Use currency's guild_id for UnbelievaBoat API (not command's guild_id)
+    // This ensures we're always talking to the correct UnbelievaBoat guild
+    let guild_id = currency_guild_id as u64;
 
     // Rate limit API calls
     crate::utils::rate_limit_ub_api().await;
@@ -200,34 +207,15 @@ pub async fn wire_in(
     {
         Ok(_) => {
             // Success - both systems updated
+            tracing::info!("wire_in SUCCESS: transferred {} {}", amount, currency_ticker);
             Ok(WireResult {
                 smite_balance: new_smite_balance,
                 ub_balance: new_ub_bank,
             })
         }
         Err(api_error) => {
-            // API call failed - ROLLBACK the database change with compensating transaction
-            let mut compensating_tx = pool.begin().await
-                .map_err(|e| WireError::CompensationFailed(format!("Failed to start compensating transaction: {}", e)))?;
-            
-            // Restore original SMITE balance
-            sqlx::query(
-                "UPDATE account SET balance = ? WHERE id = ?"
-            )
-            .bind(current_smite_balance)
-            .bind(account_id)
-            .execute(&mut *compensating_tx)
-            .await
-            .map_err(|e| WireError::CompensationFailed(format!("Failed to compensate balance during rollback: {}", e)))?;
-            
-            compensating_tx.commit().await
-                .map_err(|e| WireError::CompensationFailed(format!("Failed to commit compensating transaction: {}", e)))?;
-            
-            // Return error to user
-            Err(WireError::Api(format!(
-                "UnbelievaBoat API failed. Your balance has been restored. Please verify your token is correct. Error: {}",
-                api_error
-            )))
+            // API call failed - compensate
+            compensate_wire_out(&pool, account_id, current_smite_balance, api_error).await
         }
     }
 }
@@ -254,13 +242,20 @@ pub async fn wire_out(
             .clone()
     };
 
-    // Verify currency exists in SMITE
-    let currency_data = db::currency::get_currency_by_ticker(&pool, currency_ticker)
+    // Verify currency exists in SMITE (including guild_id)
+    let (currency_id, currency_guild_id, _, _) = db::currency::get_currency_by_ticker_with_guild(&pool, currency_ticker)
         .await
         .map_err(|e| WireError::Database(format!("Database error: {}", e)))?
         .ok_or(WireError::InvalidConfig(format!("Currency {} not found in SMITE", currency_ticker)))?;
 
-    let currency_id = currency_data.0;
+    // Verify the currency belongs to this guild (if command is in a guild)
+    if let Some(cmd_guild_id) = guild_id {
+        if currency_guild_id != cmd_guild_id as i64 {
+            return Err(WireError::InvalidConfig(
+                format!("Currency {} does not belong to this guild", currency_ticker)
+            ));
+        }
+    }
 
     // Get UnbelievaBoat API token from database
     let encrypted_token = db::api::get_api_token(&pool, currency_id, 1)
@@ -276,10 +271,9 @@ pub async fn wire_out(
     // Initialize UnbelievaBoat client
     let ub_client = UnbelievaboatClient::new(ub_token);
 
-    // Need guild_id for UnbelievaBoat API
-    let guild_id = guild_id.ok_or(WireError::InvalidConfig(
-        "Wire operations in DMs require the currency to be global. Please use this command in a guild.".to_string()
-    ))?;
+    // Use currency's guild_id for UnbelievaBoat API (not command's guild_id)
+    // This ensures we're always talking to the correct UnbelievaBoat guild
+    let guild_id = currency_guild_id as u64;
 
     // START ATOMIC TRANSACTION: All DB operations in one transaction
     let mut tx = pool.begin().await
@@ -330,15 +324,21 @@ pub async fn wire_out(
     tx.commit().await
         .map_err(|e| WireError::Transaction(format!("Failed to commit transaction: {}", e)))?;
 
-    // NOW make external API call (outside transaction)
+    // NOW make external API calls (outside transaction)
     // Rate limit API calls
     crate::utils::rate_limit_ub_api().await;
     
     // Get current UnbelievaBoat balance
-    let ub_balance = ub_client
+    let ub_balance = match ub_client
         .get_user_balance(guild_id, msg.author.id.get())
         .await
-        .map_err(|e| WireError::Api(format!("Failed to fetch UnbelievaBoat balance: {}", e)))?;
+    {
+        Ok(balance) => balance,
+        Err(api_error) => {
+            // API call failed - compensate
+            return compensate_wire_out(&pool, account_id, current_smite_balance, api_error).await;
+        }
+    };
 
     let ub_bank_amount = ub_balance.bank;
     let new_ub_bank = ub_bank_amount + amount as i64;
@@ -353,34 +353,63 @@ pub async fn wire_out(
     {
         Ok(_) => {
             // Success - both systems updated
+            tracing::info!("wire_out SUCCESS: transferred {} {}", amount, currency_ticker);
             Ok(WireResult {
                 smite_balance: new_smite_balance,
                 ub_balance: new_ub_bank,
             })
         }
         Err(api_error) => {
-            // API call failed - ROLLBACK the database change with compensating transaction
-            let mut compensating_tx = pool.begin().await
-                .map_err(|e| WireError::CompensationFailed(format!("Failed to start compensating transaction: {}", e)))?;
-            
-            // Restore original SMITE balance
-            sqlx::query(
-                "UPDATE account SET balance = ? WHERE id = ?"
-            )
-            .bind(current_smite_balance)
-            .bind(account_id)
-            .execute(&mut *compensating_tx)
-            .await
-            .map_err(|e| WireError::CompensationFailed(format!("Failed to compensate balance during rollback: {}", e)))?;
-            
-            compensating_tx.commit().await
-                .map_err(|e| WireError::CompensationFailed(format!("Failed to commit compensating transaction: {}", e)))?;
-            
-            // Return error to user
-            Err(WireError::Api(format!(
-                "UnbelievaBoat API failed. Your balance has been restored. Please verify your token is correct. Error: {}",
-                api_error
-            )))
+            // API call failed - compensate
+            compensate_wire_out(&pool, account_id, current_smite_balance, api_error).await
         }
     }
+}
+
+/// Helper function to compensate wire_out/wire_in on API failure
+/// Restores the original balance and returns appropriate error
+async fn compensate_wire_out(
+    pool: &sqlx::MySqlPool,
+    account_id: i64,
+    original_balance: f64,
+    api_error: crate::api::unbelievaboat::models::ApiError,
+) -> Result<WireResult, WireError> {
+    tracing::error!("API ERROR: {}, attempting compensation (account_id: {}, restore_balance: {})", api_error, account_id, original_balance);
+    
+    let mut compensating_tx = pool.begin().await
+        .map_err(|e| {
+            tracing::error!("Failed to start compensating transaction: {}", e);
+            WireError::CompensationFailed(format!("Failed to start compensating transaction: {}", e))
+        })?;
+    
+    // Restore original balance
+    let rows_affected = sqlx::query(
+        "UPDATE account SET balance = ? WHERE id = ?"
+    )
+    .bind(original_balance)
+    .bind(account_id)
+    .execute(&mut *compensating_tx)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to execute compensation UPDATE: {}", e);
+        WireError::CompensationFailed(format!("Failed to compensate balance: {}", e))
+    })?
+    .rows_affected();
+
+    if rows_affected == 0 {
+        tracing::warn!("Compensation UPDATE found 0 rows (account_id: {})", account_id);
+    }
+    
+    compensating_tx.commit().await
+        .map_err(|e| {
+            tracing::error!("Failed to commit compensating transaction: {}", e);
+            WireError::CompensationFailed(format!("Failed to commit compensation: {}", e))
+        })?;
+
+    tracing::info!("Compensating transaction committed successfully (account_id: {}, restored_balance: {})", account_id, original_balance);
+    
+    Err(WireError::Api(format!(
+        "UnbelievaBoat API failed. Your balance has been restored. Error: {}",
+        api_error
+    )))
 }
