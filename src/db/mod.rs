@@ -18,6 +18,11 @@ pub async fn init_db() -> Result<MySqlPool, sqlx::Error> {
 
     // Create all tables
     create_tables(&pool).await?;
+    
+    // Initialize API types
+    if let Err(e) = initialize_api_types(&pool).await {
+        warn!("Failed to initialize API types: {}", e);
+    }
 
     Ok(pool)
 }
@@ -55,5 +60,32 @@ async fn create_tables(pool: &MySqlPool) -> Result<(), sqlx::Error> {
         info!("Tables initialized successfully");
     }
 
+    Ok(())
+}
+
+/// Initialize default API types (UnbelievaBoat, etc.)
+async fn initialize_api_types(pool: &MySqlPool) -> Result<(), Box<dyn std::error::Error>> {
+    info!("Initializing API types...");
+    
+    // Check if UnbelievaBoat type already exists
+    let exists: Option<i64> = sqlx::query_scalar(
+        "SELECT id FROM api_type WHERE name = 'UnbelievaBoat'"
+    )
+    .fetch_optional(pool)
+    .await?;
+    
+    if exists.is_none() {
+        // Insert UnbelievaBoat API type
+        sqlx::query(
+            "INSERT INTO api_type (name) VALUES ('UnbelievaBoat')"
+        )
+        .execute(pool)
+        .await?;
+        
+        info!("✅ Created UnbelievaBoat API type (id=1)");
+    } else {
+        info!("✅ UnbelievaBoat API type already exists");
+    }
+    
     Ok(())
 }

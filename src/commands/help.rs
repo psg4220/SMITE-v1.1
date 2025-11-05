@@ -43,6 +43,11 @@ pub async fn execute(ctx: &Context, msg: &Message) -> Result<(), String> {
             false,
         )
         .field(
+            "🌐 Bridge to UnbelievaBoat",
+            "`$wire in <amount> <TICKER>` - Transfer from UnbelievaBoat bank to SMITE\n`$wire out <amount> <TICKER>` - Transfer from SMITE to UnbelievaBoat bank\n`$wire set token <TOKEN>` - Configure UnbelievaBoat API token (Guild-only, Admin)\n\n⚠️ **SECURITY WARNING**: Always run `$wire set token` in a **private/admin channel** to avoid exposing your token in public chat!",
+            false,
+        )
+        .field(
             "⚡ Rate Limiting",
             "5-second cooldown per command per user\nGlobal 50 requests/second limit\nFor more info, visit the [documentation](https://github.com/psg4220/SMITE-v1.1/wiki/Commands).",
             false,

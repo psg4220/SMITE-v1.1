@@ -83,9 +83,17 @@ pub async fn execute_mint(
     // Calculate new balance
     let new_balance = current_balance + amount;
 
-    // Check if amount is positive
-    if amount <= 0.0 {
-        return Err("❌ Mint amount must be greater than 0".to_string());
+    // Prevent negative balance
+    if new_balance < 0.0 {
+        return Err(format!(
+            "❌ Operation blocked: Cannot reduce balance below 0.\n\
+             Current balance: {:.8} {}\n\
+             Requested change: {:.8} {}\n\
+             New balance would be: {:.8} {}",
+            current_balance, currency_ticker,
+            amount, currency_ticker,
+            new_balance, currency_ticker
+        ));
     }
 
     // Check for overflow
@@ -100,14 +108,6 @@ pub async fn execute_mint(
             amount, currency_ticker,
             new_balance, currency_ticker,
             MAX_BALANCE, currency_ticker
-        ));
-    }
-
-    // Prevent negative balance
-    if new_balance < 0.0 {
-        return Err(format!(
-            "❌ Operation blocked: Cannot reduce balance below 0. Current: {}, Requested change: {}",
-            current_balance, amount
         ));
     }
 
