@@ -61,10 +61,7 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
                     .map_err(|e| e.to_string())?;
             }
             Err(e) => {
-                let error_embed = serenity::builder::CreateEmbed::default()
-                    .title("❌ Failed to Set Token")
-                    .description(format!("{}", e))
-                    .color(0xff0000);
+                let error_embed = e.to_embed();
 
                 msg.channel_id
                     .send_message(ctx, serenity::builder::CreateMessage::default().embed(error_embed))
@@ -112,10 +109,7 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
                         .map_err(|e| e.to_string())?;
                 }
                 Err(e) => {
-                    let error_embed = serenity::builder::CreateEmbed::default()
-                        .title("❌ Wire In Failed")
-                        .description(format!("{}", e))
-                        .color(0xff0000);
+                    let error_embed = e.to_embed();
 
                     msg.channel_id
                         .send_message(ctx, serenity::builder::CreateMessage::default().embed(error_embed))
@@ -143,10 +137,7 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
                         .map_err(|e| e.to_string())?;
                 }
                 Err(e) => {
-                    let error_embed = serenity::builder::CreateEmbed::default()
-                        .title("❌ Wire Out Failed")
-                        .description(format!("{}", e))
-                        .color(0xff0000);
+                    let error_embed = e.to_embed();
 
                     msg.channel_id
                         .send_message(ctx, serenity::builder::CreateMessage::default().embed(error_embed))
