@@ -2,9 +2,11 @@ pub mod table;
 pub mod page;
 pub mod errors;
 pub mod ratelimit;
+pub mod encryption;
 
 pub use errors::extract_clean_error;
 pub use ratelimit::{check_cooldown, check_global_rate_limit};
+pub use encryption::{encrypt_token, decrypt_token};
 
 /// Check if a user has required roles in a guild (case-insensitive)
 /// Special behavior for "admin" role: checks Discord ADMINISTRATOR permission instead of role name

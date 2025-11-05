@@ -10,3 +10,4 @@ pub mod chart_service;
 pub mod tax_service;
 pub mod info_service;
 pub mod board_service;
+pub mod wire_service;

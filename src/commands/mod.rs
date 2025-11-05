@@ -10,6 +10,7 @@ pub mod tax;
 pub mod info;
 pub mod board;
 pub mod help;
+pub mod wire;
 
 
 use serenity::model::channel::Message;
@@ -100,6 +101,7 @@ pub async fn handle_message(ctx: &Context, msg: &Message) {
         "tax" => tax::execute(ctx, msg, args).await,
         "info" => info::execute(ctx, msg, args).await,
         "board" | "list" | "ls" => board::execute(ctx, msg, args).await,
+        "wire" => wire::execute(ctx, msg, args).await,
         _ => return,
     };
 
