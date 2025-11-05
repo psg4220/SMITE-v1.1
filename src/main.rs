@@ -114,6 +114,7 @@ async fn main() {
         | GatewayIntents::MESSAGE_CONTENT
         | GatewayIntents::GUILD_MESSAGES;
 
+    // Enable autosharding - Discord will automatically shard the bot based on guild count
     let mut client = Client::builder(&token, intents)
         .event_handler(Handler)
         .await
@@ -127,7 +128,8 @@ async fn main() {
         data.insert::<CommandPrefix>(prefix);
     }
 
-    if let Err(e) = client.start().await {
+    // Start the client with autosharding enabled
+    if let Err(e) = client.start_autosharded().await {
         error!("Client error: {}", e);
     }
 }
