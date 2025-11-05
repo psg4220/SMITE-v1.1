@@ -3,6 +3,7 @@ use serenity::prelude::Context;
 use crate::db;
 use crate::api::unbelievaboat::UnbelievaboatClient;
 use crate::utils::{encrypt_token, decrypt_token};
+use crate::utils::encryption::CryptoError;
 
 pub struct WireResult {
     pub smite_balance: f64,
@@ -41,10 +42,11 @@ pub async fn set_api_token(
         .map_err(|_| "TOKEN_ENCRYPTION_KEY not set in environment".to_string())?;
 
     // Encrypt the token
-    let encrypted_token = encrypt_token(token, &encryption_key)?;
+    let encrypted_token = encrypt_token(token, &encryption_key)
+        .map_err(|e| format!("Encryption error: {}", e))?;
 
     // Store encrypted token in database
-    db::currency::store_api_token(&pool, currency_id, 1, &encrypted_token)
+    db::api::store_api_token(&pool, currency_id, 1, &encrypted_token)
         .await
         .map_err(|e| format!("Failed to store token: {}", e))?;
 
@@ -81,7 +83,7 @@ pub async fn wire_in(
     let currency_id = currency_data.0;
 
     // Get UnbelievaBoat API token from database
-    let encrypted_token = db::currency::get_api_token(&pool, currency_id, 1)
+    let encrypted_token = db::api::get_api_token(&pool, currency_id, 1)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or("UnbelievaBoat API token not configured for this currency".to_string())?;
@@ -89,7 +91,8 @@ pub async fn wire_in(
     // Decrypt the token
     let encryption_key = std::env::var("TOKEN_ENCRYPTION_KEY")
         .map_err(|_| "TOKEN_ENCRYPTION_KEY not set in environment".to_string())?;
-    let ub_token = decrypt_token(&encrypted_token, &encryption_key)?;
+    let ub_token = decrypt_token(&encrypted_token, &encryption_key)
+        .map_err(|e| format!("Decryption error: {}", e))?;
 
     // Initialize UnbelievaBoat client
     let ub_client = UnbelievaboatClient::new(ub_token);
@@ -183,7 +186,7 @@ pub async fn wire_out(
     let currency_id = currency_data.0;
 
     // Get UnbelievaBoat API token from database
-    let encrypted_token = db::currency::get_api_token(&pool, currency_id, 1)
+    let encrypted_token = db::api::get_api_token(&pool, currency_id, 1)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or("UnbelievaBoat API token not configured for this currency".to_string())?;
@@ -191,7 +194,8 @@ pub async fn wire_out(
     // Decrypt the token
     let encryption_key = std::env::var("TOKEN_ENCRYPTION_KEY")
         .map_err(|_| "TOKEN_ENCRYPTION_KEY not set in environment".to_string())?;
-    let ub_token = decrypt_token(&encrypted_token, &encryption_key)?;
+    let ub_token = decrypt_token(&encrypted_token, &encryption_key)
+        .map_err(|e| format!("Decryption error: {}", e))?;
 
     // Initialize UnbelievaBoat client
     let ub_client = UnbelievaboatClient::new(ub_token);

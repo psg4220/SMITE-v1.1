@@ -87,6 +87,11 @@ async fn main() {
     info!("  SMITE v1.1.1 - Society for Micronational Interbank Transactions and Exchanges");
     info!("");
     
+    // Ensure encryption key exists
+    if let Err(e) = utils::ensure_encryption_key() {
+        warn!("Failed to ensure encryption key: {}", e);
+    }
+    
     // Initialize database
     info!("Initializing database...");
     let pool = match db::init_db().await {

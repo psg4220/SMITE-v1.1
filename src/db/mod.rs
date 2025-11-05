@@ -7,6 +7,7 @@ pub mod swap;
 pub mod transaction;
 pub mod tradelog;
 pub mod tax;
+pub mod api;
 
 /// Initialize the MySQL connection pool and create tables
 pub async fn init_db() -> Result<MySqlPool, sqlx::Error> {

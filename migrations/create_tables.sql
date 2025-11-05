@@ -125,20 +125,20 @@ CREATE TABLE IF NOT EXISTS api_type (
 CREATE TABLE IF NOT EXISTS api_token (
     id INT AUTO_INCREMENT PRIMARY KEY,
     currency_id BIGINT NOT NULL,
-    type TINYINT NOT NULL,
+    api_type_id TINYINT NOT NULL,
     encrypted_token LONGTEXT NOT NULL,
     date_created DATETIME DEFAULT CURRENT_TIMESTAMP,
     date_updated DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
     INDEX idx_api_token_currency (currency_id),
-    INDEX idx_api_token_type (type),
+    INDEX idx_api_token_type (api_type_id),
     
     CONSTRAINT fk_api_token_currency
         FOREIGN KEY (currency_id)
         REFERENCES currency(id)
         ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_api_token_type
-        FOREIGN KEY (type)
+        FOREIGN KEY (api_type_id)
         REFERENCES api_type(id)
         ON DELETE RESTRICT ON UPDATE CASCADE
 );

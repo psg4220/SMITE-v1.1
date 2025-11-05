@@ -157,3 +157,60 @@ pub async fn check_user_roles(
 
     Ok(())
 }
+
+/// Ensure encryption key exists in .env, generate if missing
+pub fn ensure_encryption_key() -> Result<String, String> {
+    use tracing::info;
+    use std::fs;
+    use std::path::Path;
+
+    // Try to get from environment
+    if let Ok(key) = std::env::var("TOKEN_ENCRYPTION_KEY") {
+        if !key.is_empty() {
+            return Ok(key);
+        }
+    }
+
+    // Key not found or empty, generate a new one
+    info!("TOKEN_ENCRYPTION_KEY not found in environment, generating new 256-bit key...");
+    
+    // Generate 32 random bytes (256 bits) for AES256
+    use rand::RngCore;
+    let mut key_bytes = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut key_bytes);
+    
+    let key_hex = hex::encode(key_bytes);
+    
+    // Try to append to .env file
+    let env_path = ".env";
+    let env_exists = Path::new(env_path).exists();
+    
+    let env_content = if env_exists {
+        fs::read_to_string(env_path)
+            .map_err(|e| format!("Failed to read .env: {}", e))?
+    } else {
+        String::new()
+    };
+    
+    // Check if key already exists in file (might have been added by another process)
+    if env_content.contains("TOKEN_ENCRYPTION_KEY=") {
+        // Try to load it again
+        return std::env::var("TOKEN_ENCRYPTION_KEY")
+            .map_err(|_| "TOKEN_ENCRYPTION_KEY exists in .env but could not be loaded".to_string());
+    }
+    
+    // Append the key to .env
+    let new_content = if env_content.is_empty() || env_content.ends_with('\n') {
+        format!("{}TOKEN_ENCRYPTION_KEY={}\n", env_content, key_hex)
+    } else {
+        format!("{}\nTOKEN_ENCRYPTION_KEY={}\n", env_content, key_hex)
+    };
+    
+    fs::write(env_path, new_content)
+        .map_err(|e| format!("Failed to write TOKEN_ENCRYPTION_KEY to .env: {}", e))?;
+    
+    info!("Generated and saved new TOKEN_ENCRYPTION_KEY to .env");
+    
+    Ok(key_hex)
+}
+
