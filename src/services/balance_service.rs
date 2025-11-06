@@ -45,11 +45,11 @@ pub async fn get_balance(
         (currency_data.0, currency_data.2)
     };
     
-    // Get balance
+    // Get balance (treat missing account as 0 balance)
     let balance = db::account::get_account_balance(&pool, user_id, currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
-        .ok_or("User has no account for this currency".to_string())?;
+        .unwrap_or(0.0);  // Return 0 if user has no account for this currency
     
     Ok(BalanceResult {
         user_id,
