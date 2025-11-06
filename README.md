@@ -6,7 +6,7 @@
 
 SMITE **(Society for Micronational Interbank Transactions and Exchanges)** is a discord bot that makes foreign exchange for micro nations possible as well as transferring funds to others. 
 
-Want the bot in your server [click here!](https://discord.com/oauth2/authorize?client_id=1227871410341548112)
+Want the bot in your server [click here!](https://discord.com/oauth2/authorize?client_id=1227871410341548112) \
 Our Official Discord Server: [SMITE](https://discord.com/invite/7pXeKgzdvC)
 
 The previous version of SMITE is `version 1` and it is programmed using Python. Problem is that a lot of users reported that SMITE-v1 performance is slow. 
