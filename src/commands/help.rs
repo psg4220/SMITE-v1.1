@@ -24,7 +24,11 @@ pub async fn execute(ctx: &Context, msg: &Message) -> Result<(), String> {
         )
         .field(
             "💸 Transactions",
-            "`$send @user(s) <amount> <TICKER>` - Transfer funds\n`$transaction [list|UUID]` - View transaction history",
+            "`$send @user <amount> <TICKER>` - Transfer funds\n`$transaction [list|UUID]` - View transaction history",
+            false,
+        ).field(
+            "💸 Multiple Transactions",
+            "`$send (@user1 @user2 ... @userN) <amount> <TICKER>` - Transfer funds\n`$transaction [list|UUID]` - View transaction history",
             false,
         )
         .field(
@@ -44,7 +48,7 @@ pub async fn execute(ctx: &Context, msg: &Message) -> Result<(), String> {
         )
         .field(
             "🌐 Bridge to UnbelievaBoat",
-            "`$wire in <amount> <TICKER>` - Transfer from UnbelievaBoat bank to SMITE\n`$wire out <amount> <TICKER>` - Transfer from SMITE to UnbelievaBoat bank\n`$wire set token <TOKEN>` - Configure UnbelievaBoat API token (Guild-only, Admin)\n\n⚠️ **SECURITY WARNING**: Always run `$wire set token` in a **private/admin channel** to avoid exposing your token in public chat!",
+            "`$wire in <amount> <TICKER>` - Transfer from UnbelievaBoat bank to SMITE\n`$wire out <guild_id> <amount>` - Transfer from SMITE to UnbelievaBoat bank\n`$wire set token <TOKEN>` - Configure UnbelievaBoat API token (DM-only, Admin)\n\n⚠️ **SECURITY WARNING**: Always run `$wire set token` in a **private/admin channel** to avoid exposing your token in public chat!",
             false,
         )
         .field(

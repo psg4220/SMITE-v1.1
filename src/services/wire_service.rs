@@ -279,8 +279,8 @@ pub async fn wire_out(
     let mut tx = pool.begin().await
         .map_err(|e| WireError::Transaction(format!("Failed to start transaction: {}", e)))?;
 
-    // Get current SMITE balance (within transaction)
-    let current_smite_balance: f64 = sqlx::query_scalar(
+    // Get current SMITE balance (if no account exists, treat as 0 balance - same as UnbelievaBoat 404)
+    let current_smite_balance: f64 = match sqlx::query_scalar(
         "SELECT CAST(balance AS DOUBLE) as balance FROM account WHERE discord_id = ? AND currency_id = ?"
     )
     .bind(user_id)
@@ -288,7 +288,13 @@ pub async fn wire_out(
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| WireError::Database(format!("Database error: {}", e)))?
-    .ok_or(WireError::InvalidConfig(format!("You don't have an account in {}", currency_ticker)))?;
+    {
+        Some(balance) => balance,
+        None => {
+            // User doesn't exist in SMITE yet - treat as 0 balance
+            0.0
+        }
+    };
 
     // Check if user has enough in SMITE
     if current_smite_balance < amount {
@@ -299,15 +305,25 @@ pub async fn wire_out(
         )));
     }
 
-    // Get account ID (within transaction)
-    let account_id: i64 = sqlx::query_scalar(
+    // Get or create account ID (within transaction)
+    let account_id: i64 = match sqlx::query_scalar(
         "SELECT id FROM account WHERE discord_id = ? AND currency_id = ?"
     )
     .bind(user_id)
     .bind(currency_id)
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await
-    .map_err(|e| WireError::Database(format!("Database error: {}", e)))?;
+    .map_err(|e| WireError::Database(format!("Database error: {}", e)))?
+    {
+        Some(id) => id,
+        None => {
+            // Account doesn't exist - cannot wire out without an account
+            return Err(WireError::InsufficientBalance(format!(
+                "Insufficient SMITE balance. You have 0 but need {}",
+                amount
+            )));
+        }
+    };
 
     // Subtract from SMITE account (within transaction)
     let new_smite_balance = current_smite_balance - amount;

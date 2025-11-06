@@ -10,16 +10,17 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
             .field("Usage",
                 "`$wire in <amount> <currency>` - Transfer from UnbelievaBoat to SMITE\n\
                  `$wire out <amount> <currency>` - Transfer from SMITE to UnbelievaBoat\n\
-                 `$wire set token <guild_id> <token>` - Set API token (DM only, admin verification)",
+                 `$wire set token <guild_id> <token>` - Set API token (DM only)",
                 false)
             .field("Examples",
                 "`$wire in 100 ABC` - Remove 100 ABC from UnbelievaBoat, add to SMITE account\n\
                  `$wire out 100 ABC` - Remove 100 ABC from SMITE account, add to UnbelievaBoat\n\
-                 `$wire set token 905861000593539153 sk_live_xxx...` - Store token securely in DM",
+                 `$wire set token 905861000593539153 eyJhbGciOiJI...` - Store token securely in DM",
                 false)
             .field("Notes",
                 "• `wire in/out` works in DMs or guilds\n\
                  • `wire set token` works **ONLY in DMs** (for security)\n\
+                 • Token setting automatically detects currency from guild_id\n\
                  • Cannot go negative on either side\n\
                  • Currency must exist in SMITE\n\
                  • User must have admin role in the target guild",
@@ -38,7 +39,8 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
         // Check if command is in DM
         if msg.guild_id.is_some() {
             return Err("❌ Token setting is only allowed in DMs for security reasons.\n\
-                        Use: `$wire set token <guild_id> <token>` in a DM".to_string());
+                        Use: `$wire set token <guild_id> <token>` in a DM.\n\
+                        **PLEASE DELETE YOUR MESSAGE SINCE THE TOKEN MUST BE KEPT SECRET!**".to_string());
         }
 
         if args.len() < 3 || args[1] != "token" {
@@ -59,7 +61,7 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
             Ok(_) => {
                 let embed = serenity::builder::CreateEmbed::default()
                     .title("✅ Token Set Successfully")
-                    .description(format!("UnbelievaBoat API token has been encrypted and stored for guild `{}`.", guild_id_arg))
+                    .description(format!("UnbelievaBoat API token has been encrypted and stored for guild `{}`.\nPlease delete your message containing the token for security reasons.", guild_id_arg))
                     .color(0x00ff00);
 
                 msg.channel_id
