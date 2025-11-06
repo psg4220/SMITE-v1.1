@@ -48,7 +48,7 @@ pub async fn execute(ctx: &Context, msg: &Message) -> Result<(), String> {
         )
         .field(
             "🌐 Bridge to UnbelievaBoat",
-            "`$wire in <amount> <TICKER>` - Transfer from UnbelievaBoat bank to SMITE\n`$wire out <guild_id> <amount>` - Transfer from SMITE to UnbelievaBoat bank\n`$wire set token <TOKEN>` - Configure UnbelievaBoat API token (DM-only, Admin)\n\n⚠️ **SECURITY WARNING**: Always run `$wire set token` in a **private/admin channel** to avoid exposing your token in public chat!",
+            "`$wire in <amount> <TICKER>` - Transfer from UnbelievaBoat to SMITE (Works in DM or guilds)\n`$wire out <amount> <TICKER>` - Transfer from SMITE to UnbelievaBoat (Works in DM or guilds)\n`$wire set token <guild_id> <token>` - Configure API token (DM-only, Admin)\n\n⚠️ **SECURITY WARNING**: Always run `$wire set token` in **DMs** to avoid exposing your token in public chat!",
             false,
         )
         .field(
@@ -58,7 +58,7 @@ pub async fn execute(ctx: &Context, msg: &Message) -> Result<(), String> {
         )
         .field(
             "📚 More Information",
-            "Use `$ping` for latency and shard details\nVisit [documentation](https://github.com/psg4220/SMITE-v1.1/wiki/Commands) for detailed command info",
+            "Use `$ping` for latency\nVisit [documentation](https://github.com/psg4220/SMITE-v1.1/wiki/Commands) for detailed command info",
             false,
         );
 
