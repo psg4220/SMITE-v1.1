@@ -1,3 +1,12 @@
+//! Wire Command - Bridge between SMITE and UnbelievaBoat economies
+//!
+//! DISCLAIMER: This implementation does NOT violate UnbelievaBoat's Terms of Service.
+//! This module uses the official UnbelievaBoat API with explicit authentication tokens.
+//! Wire transfers are NOT automation - they result from intentional, manual user commands.
+//! Every transfer requires explicit user invocation; there are no background processes
+//! or scheduled tasks performing automated transactions. API calls are direct responses
+//! to user-initiated commands, making this a legitimate integration, not a violation.
+
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use crate::services::wire_service;
@@ -18,12 +27,12 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
                  `$wire set token 905861000593539153 eyJhbGciOiJI...` - Store token securely in DM",
                 false)
             .field("Notes",
-                "• `wire in/out` works in DMs or guilds\n\
+                "• `wire in/out` works in DMs or guild channels\n\
                  • `wire set token` works **ONLY in DMs** (for security)\n\
-                 • Token setting automatically detects currency from guild_id\n\
+                 • Uses currency's configured UnbelievaBoat guild for transfers\n\
                  • Cannot go negative on either side\n\
                  • Currency must exist in SMITE\n\
-                 • User must have admin role in the target guild",
+                 • Each currency linked to one UnbelievaBoat guild",
                 false)
             .color(0x00b0f4);
 
