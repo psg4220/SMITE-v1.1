@@ -8,5 +8,4 @@ pub struct PriceResult {
     pub timeframe: String,
     pub last_price: f64,
     pub vwap: Option<f64>,
-    pub is_reversed: bool,
 }

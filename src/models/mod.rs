@@ -18,7 +18,6 @@ pub mod ping;
 // Re-export commonly used types for convenience
 pub use balance::BalanceResult;
 pub use wire::{WireResult, WireDirection};
-pub use chart::PricePoint;
 pub use send::SendResult;
 pub use swap::{SwapResult, AcceptDenyResult, SwapListResult};
 pub use mint::MintResult;

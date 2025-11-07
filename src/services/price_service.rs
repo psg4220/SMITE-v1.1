@@ -101,9 +101,9 @@ pub async fn get_price(
         quote_ticker: quote_ticker.to_string(),
         timeframe: timeframe_arg.to_string(),
         last_price: displayed_price,
-        vwap: vwap_displayed,
-        is_reversed,
+        vwap: vwap_displayed
     })
+    
 }
 
 /// Get latest prices with optional filtering by base or quote ticker
