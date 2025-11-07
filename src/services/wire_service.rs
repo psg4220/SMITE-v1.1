@@ -1,33 +1,11 @@
-//! Wire Service - Core bridge logic for SMITE ↔ UnbelievaBoat transfers
-//!
-//! DISCLAIMER: This implementation does NOT violate UnbelievaBoat's Terms of Service.
-//! This module uses the official UnbelievaBoat API with explicit authentication tokens.
-//! Wire transfers are NOT automation - they result from intentional, manual user commands.
-//! Every transfer requires explicit user invocation; there are no background processes
-//! or scheduled tasks performing automated transactions. API calls are direct responses
-//! to user-initiated commands, making this a legitimate integration, not a violation.
-
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use crate::db;
 use crate::api::unbelievaboat::UnbelievaboatClient;
 use crate::utils::{encrypt_token, decrypt_token};
 use crate::utils::errors::WireError;
+use crate::models::{WireDirection, WireResult};
 use tracing;
-
-/// Direction of wire transfer
-#[derive(Debug, Clone, Copy)]
-pub enum WireDirection {
-    /// Transfer from UnbelievaBoat to SMITE (add to SMITE)
-    In,
-    /// Transfer from SMITE to UnbelievaBoat (subtract from SMITE)
-    Out,
-}
-
-pub struct WireResult {
-    pub smite_balance: f64,
-    pub ub_balance: i64,
-}
 
 /// Set UnbelievaBoat API token for a currency (admin only, DM-only for security)
 /// User must have admin permissions in the target guild

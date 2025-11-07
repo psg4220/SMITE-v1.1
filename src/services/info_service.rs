@@ -1,16 +1,7 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use crate::db;
-
-pub struct CurrencyInfo {
-    pub name: String,
-    pub ticker: String,
-    pub total_in_circulation: f64,
-    pub account_balance_total: f64,
-    pub tax_balance_total: f64,
-    pub swap_maker_total: f64,
-    pub date_created: String,
-}
+use crate::models::CurrencyInfo;
 
 pub async fn execute_info(
     ctx: &Context,

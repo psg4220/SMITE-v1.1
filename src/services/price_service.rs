@@ -1,16 +1,6 @@
 use sqlx::mysql::MySqlPool;
 use crate::db;
-
-/// Result struct for price query
-#[derive(Debug)]
-pub struct PriceResult {
-    pub base_ticker: String,
-    pub quote_ticker: String,
-    pub timeframe: String,
-    pub last_price: f64,
-    pub vwap: Option<f64>,
-    pub is_reversed: bool,
-}
+use crate::models::PriceResult;
 
 /// Convert user-friendly timeframe string to MySQL INTERVAL format
 /// Examples: "1m" -> "1 MINUTE", "1h" -> "1 HOUR", "1d" -> "1 DAY", etc.

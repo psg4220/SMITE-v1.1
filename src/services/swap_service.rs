@@ -2,27 +2,8 @@ use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use serenity::model::prelude::UserId;
 use crate::db;
+use crate::models::{SwapResult, AcceptDenyResult, SwapListResult};
 use uuid::Uuid;
-
-pub struct SwapResult {
-    pub swap_id: i64,
-    pub maker_id: i64,
-    pub taker_id: Option<i64>,
-    pub maker_amount: String,
-    pub maker_currency: String,
-    pub taker_amount: String,
-    pub taker_currency: String,
-    pub status: String
-}
-
-pub struct AcceptDenyResult {
-    pub swap_id: i64,
-    pub maker_id: i64,
-    pub taker_id: i64,
-    pub maker_offer: String,
-    pub taker_offer: String,
-    pub status: String,
-}
 
 pub async fn execute_swap(
     ctx: &Context,
@@ -588,13 +569,6 @@ pub fn create_accept_deny_embed(result: &AcceptDenyResult) -> serenity::builder:
         .field("Taker", format!("<@{}>", result.taker_id), true)
         .field("Taker Wants", result.taker_offer.clone(), true)
         .color(color)
-}
-
-pub struct SwapListResult {
-    pub swaps: Vec<(i64, i64, Option<i64>, String, String, f64, f64, String)>,  // (id, maker_id, taker_id, maker_ticker, taker_ticker, maker_amount, taker_amount, status)
-    pub current_page: usize,
-    pub total_pages: usize,
-    pub total_swaps: i64,
 }
 
 pub async fn get_swaps_list(

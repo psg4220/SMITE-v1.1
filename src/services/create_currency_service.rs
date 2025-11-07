@@ -2,11 +2,7 @@ use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use crate::db;
 use crate::blacklist;
-
-pub struct CreateCurrencyResult {
-    pub name: String,
-    pub ticker: String,
-}
+use crate::models::CreateCurrencyResult;
 
 pub async fn execute_create_currency(
     ctx: &Context,

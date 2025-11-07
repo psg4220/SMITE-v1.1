@@ -1,16 +1,10 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use crate::db;
+use crate::models::MintResult;
 
 // Maximum value for DECIMAL(24,8): 999,999,999,999,999.99999999
 const MAX_BALANCE: f64 = 999_999_999_999_999.99999999;
-
-pub struct MintResult {
-    pub user_id: i64,
-    pub amount: f64,
-    pub new_balance: f64,
-    pub currency_ticker: String,
-}
 
 pub async fn execute_mint(
     ctx: &Context,

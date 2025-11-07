@@ -1,18 +1,7 @@
 use sqlx::mysql::MySqlPool;
 use serenity::builder::CreateEmbed;
 use crate::db;
-
-pub struct TransactionListResult {
-    pub formatted_message: String,
-    pub is_empty: bool,
-}
-
-pub struct TransactionDetailResult {
-    pub sender_discord_id: i64,
-    pub receiver_discord_id: i64,
-    pub amount: f64,
-    pub date: String,
-}
+use crate::models::{TransactionListResult, TransactionDetailResult};
 
 /// Get all transactions for pagination (no limit)
 pub async fn get_transaction_list_for_pagination(

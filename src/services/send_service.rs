@@ -1,18 +1,10 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use crate::db;
+use crate::models::SendResult;
 
 // Maximum value for DECIMAL(24,8): 999,999,999,999,999.99999999
 const MAX_BALANCE: f64 = 999_999_999_999_999.99999999;
-
-pub struct SendResult {
-    pub sender_id: i64,
-    pub receiver_ids: Vec<i64>,
-    pub amount: String,
-    pub currency_ticker: String,
-    pub total_amount: String,
-    pub tax_amount: String,
-}
 
 pub async fn execute_send(
     ctx: &Context,

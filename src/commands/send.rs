@@ -1,6 +1,7 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use crate::services::send_service;
+use crate::models::SendResult;
 
 pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), String> {
     if args.len() < 2 {
@@ -99,14 +100,12 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
     // Process each recipient and collect results
     let mut successful_recipients = Vec::new();
     let mut failed_recipients = Vec::new();
-    let mut total_sent = 0.0;
     let mut total_tax = 0.0;
     
     for recipient_id in recipients {
         match send_service::execute_send(ctx, msg, recipient_id, amount, &currency_ticker).await {
             Ok((_receiver_id, _transaction_uuid, tax_amount)) => {
                 successful_recipients.push(recipient_id);
-                total_sent += amount;
                 total_tax += tax_amount;
             }
             Err(e) => {
@@ -117,12 +116,11 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
     
     // Send success embed if any transfers succeeded
     if !successful_recipients.is_empty() {
-        let result = send_service::SendResult {
+        let result = SendResult {
             sender_id: msg.author.id.get() as i64,
             receiver_ids: successful_recipients.clone(),
             amount: format!("{:.2}", amount),
             currency_ticker: currency_ticker.clone(),
-            total_amount: format!("{:.2}", total_sent),
             tax_amount: format!("{:.8}", total_tax),
         };
         

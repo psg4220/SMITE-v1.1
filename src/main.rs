@@ -13,6 +13,7 @@ mod services;
 mod utils;
 mod blacklist;
 mod api;
+mod models;
 
 struct Handler;
 

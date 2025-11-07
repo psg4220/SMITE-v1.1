@@ -1,12 +1,7 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use crate::db;
-
-pub struct BalanceResult {
-    pub user_id: i64,
-    pub balance: String,
-    pub currency_ticker: String,
-}
+use crate::models::BalanceResult;
 
 pub async fn get_balance(
     ctx: &Context,

@@ -2,13 +2,7 @@ use sqlx::mysql::MySqlPool;
 use plotters::prelude::*;
 use chrono::{DateTime, Utc, NaiveDateTime, Duration};
 use crate::db;
-
-/// Chart data point with timestamp and price
-#[derive(Debug, Clone)]
-pub struct PricePoint {
-    pub timestamp: DateTime<Utc>,
-    pub price: f64,
-}
+use crate::models::chart::PricePoint;
 
 /// Parse timeframe string to duration
 /// Supported: 1d, 2d, 4d, 7d, 1w, 2w, 4w, 1M, 3M, 1y, all

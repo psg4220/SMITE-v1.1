@@ -1,11 +1,6 @@
 use serenity::prelude::*;
 use std::time::Instant;
-
-pub struct PingMetrics {
-    pub response_latency: u64,
-    pub uptime: String,
-    pub shard_id: String,
-}
+use crate::models::PingMetrics;
 
 pub async fn get_ping_metrics(ctx: &Context, start_time: Instant) -> Result<PingMetrics, String> {
     let response_latency = start_time.elapsed().as_millis() as u64;
