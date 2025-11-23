@@ -1,6 +1,4 @@
 use serenity::builder::{CreateEmbed, CreateMessage};
-use serenity::model::prelude::*;
-use serenity::prelude::Context;
 
 pub struct Page {
     pub pages: Vec<CreateEmbed>,

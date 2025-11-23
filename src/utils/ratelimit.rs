@@ -99,8 +99,3 @@ pub async fn check_global_rate_limit() -> Result<(), u64> {
         Ok(())
     }
 }
-
-/// Get the cooldown seconds constant
-pub fn get_cooldown_seconds() -> u64 {
-    COOLDOWN_SECONDS
-}
