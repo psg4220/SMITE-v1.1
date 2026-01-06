@@ -1,6 +1,5 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
-use crate::db;
 use crate::models::MintResult;
 
 // Maximum value for DECIMAL(24,8): 999,999,999,999,999.99999999
@@ -33,14 +32,14 @@ pub async fn execute_mint(
     };
 
     // Look up currency by ticker
-    let currency_id = db::currency::get_currency_by_ticker(&pool, currency_ticker)
+    let currency_id = pool.get_currency_by_ticker(currency_ticker)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .map(|(id, _, _)| id)
         .ok_or_else(|| format!("Currency '{}' not found", currency_ticker))?;
     
     // SECURITY: Verify the currency and check permissions
-    let currency_details = db::currency::get_currency_by_id(&pool, currency_id)
+    let currency_details = pool.get_currency_by_id(currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or("Currency not found".to_string())?;
@@ -57,11 +56,11 @@ pub async fn execute_mint(
     }
 
     // Get or create account
-    let account_id = match db::account::get_account_id(&pool, user_id, currency_id).await {
+    let account_id = match pool.get_account_id(user_id, currency_id).await {
         Ok(Some(id)) => id,
         Ok(None) => {
             // Account doesn't exist, create it
-            db::account::create_account(&pool, user_id, currency_id)
+            pool.create_account(user_id, currency_id)
                 .await
                 .map_err(|e| format!("Failed to create account: {}", e))?
         }
@@ -69,7 +68,7 @@ pub async fn execute_mint(
     };
 
     // Get current balance
-    let current_balance = db::account::get_account_balance(&pool, user_id, currency_id)
+    let current_balance = pool.get_account_balance(user_id, currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .unwrap_or(0.0);
@@ -106,7 +105,7 @@ pub async fn execute_mint(
     }
 
     // Update balance
-    db::account::update_balance(&pool, account_id, amount).await
+    pool.update_balance(account_id, amount).await
         .map_err(|e| format!("Failed to update balance: {}", e))?;
 
     Ok(MintResult {

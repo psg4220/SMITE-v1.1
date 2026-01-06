@@ -1,6 +1,5 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
-use crate::db;
 use crate::models::BalanceResult;
 
 pub async fn get_balance(
@@ -20,7 +19,7 @@ pub async fn get_balance(
     
     let (currency_id, ticker) = if let Some(ticker) = currency_ticker {
         // Look up currency by ticker (searches across all guilds)
-        let currency_data = db::currency::get_currency_by_ticker(&pool, ticker)
+        let currency_data = pool.get_currency_by_ticker(ticker)
             .await
             .map_err(|e| format!("Database error: {}", e))?
             .ok_or(format!("Currency {} not found", ticker))?;
@@ -33,7 +32,7 @@ pub async fn get_balance(
             .get();
         
         // Get guild's default currency
-        let currency_data = db::currency::get_currency_by_guild(&pool, guild_id as i64)
+        let currency_data = pool.get_currency_by_guild(guild_id as i64)
             .await
             .map_err(|e| format!("Database error: {}", e))?
             .ok_or("Guild has no currency set up".to_string())?;
@@ -41,7 +40,7 @@ pub async fn get_balance(
     };
     
     // Get balance (treat missing account as 0 balance)
-    let balance = db::account::get_account_balance(&pool, user_id, currency_id)
+    let balance = pool.get_account_balance(user_id, currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .unwrap_or(0.0);  // Return 0 if user has no account for this currency

@@ -140,7 +140,7 @@ async fn execute_chart(ctx: &Context, msg: &Message, args: &[&str]) -> Result<()
     // Verify currencies exist
     tracing::info!("Verifying currencies exist in database");
     
-    let _base_currency = match crate::db::currency::get_currency_by_ticker(&pool, &base_ticker).await {
+    let _base_currency = match pool.get_currency_by_ticker(&base_ticker).await {
         Ok(Some(currency)) => {
             tracing::info!("✓ Found base currency: {} (ID: {})", base_ticker, currency.0);
             currency
@@ -153,7 +153,7 @@ async fn execute_chart(ctx: &Context, msg: &Message, args: &[&str]) -> Result<()
         }
     };
 
-    let _quote_currency = match crate::db::currency::get_currency_by_ticker(&pool, &quote_ticker).await {
+    let _quote_currency = match pool.get_currency_by_ticker(&quote_ticker).await {
         Ok(Some(currency)) => {
             tracing::info!("✓ Found quote currency: {} (ID: {})", quote_ticker, currency.0);
             currency

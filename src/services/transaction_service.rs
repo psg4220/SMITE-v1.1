@@ -1,29 +1,29 @@
-use sqlx::mysql::MySqlPool;
+use std::sync::Arc;
 use serenity::builder::CreateEmbed;
-use crate::db;
+use crate::db::traits::DatabaseBackend;
 use crate::models::{TransactionListResult, TransactionDetailResult};
 
 /// Get all transactions for pagination (no limit)
 pub async fn get_transaction_list_for_pagination(
-    pool: &MySqlPool,
+    pool: &Arc<dyn DatabaseBackend>,
     user_id: i64,
 ) -> Result<Vec<(i64, i64, f64, String, String, String)>, String> {
     // Get all transactions for the user (as sender or receiver)
-    db::transaction::get_user_transactions(pool, user_id, 1000)
+    pool.get_user_transactions(user_id, 1000)
         .await
         .map_err(|e| format!("Failed to fetch transactions: {}", e))
 }
 
 /// Create paginated embeds for transactions (10 per page) - with OFFSET/LIMIT
 pub async fn create_transaction_pages(
-    pool: &MySqlPool,
+    pool: &Arc<dyn DatabaseBackend>,
     user_id: i64,
     page: usize,
 ) -> Result<(Vec<CreateEmbed>, usize), String> {
     const TRANSACTIONS_PER_PAGE: usize = 10;
     
     // Fetch paginated transactions from database
-    let (transactions, total_count) = db::transaction::get_user_transactions_paginated(pool, user_id, page, TRANSACTIONS_PER_PAGE)
+    let (transactions, total_count) = pool.get_user_transactions_paginated(user_id, page, TRANSACTIONS_PER_PAGE)
         .await
         .map_err(|e| format!("Failed to fetch transactions: {}", e))?;
 
@@ -48,11 +48,11 @@ pub async fn create_transaction_pages(
 
     for tx in &transactions {
         // tx is (sender_id, receiver_id, amount, date, uuid, currency_ticker)
-        let sender_discord_id = db::account::get_discord_id_by_account_id(pool, tx.0)
+        let sender_discord_id = pool.get_discord_id_by_account_id(tx.0)
             .await
             .unwrap_or(None)
             .unwrap_or(tx.0);
-        let receiver_discord_id = db::account::get_discord_id_by_account_id(pool, tx.1)
+        let receiver_discord_id = pool.get_discord_id_by_account_id(tx.1)
             .await
             .unwrap_or(None)
             .unwrap_or(tx.1);
@@ -79,11 +79,11 @@ pub async fn create_transaction_pages(
 
 /// Get formatted transaction list (top 10 most recent)
 pub async fn get_transaction_list(
-    pool: &MySqlPool,
+    pool: &Arc<dyn DatabaseBackend>,
     user_id: i64,
 ) -> Result<TransactionListResult, String> {
     // Get the top 10 most recent transactions for the user (as sender or receiver)
-    let transactions = db::transaction::get_user_transactions(pool, user_id, 10)
+    let transactions = pool.get_user_transactions(user_id, 10)
         .await
         .map_err(|e| format!("Failed to fetch transactions: {}", e))?;
 
@@ -99,11 +99,11 @@ pub async fn get_transaction_list(
 
     for (idx, tx) in transactions.iter().enumerate() {
         // Get sender and receiver Discord IDs from account IDs
-        let sender_discord_id = db::account::get_discord_id_by_account_id(pool, tx.0)
+        let sender_discord_id = pool.get_discord_id_by_account_id(tx.0)
             .await
             .unwrap_or(None)
             .unwrap_or(0);
-        let receiver_discord_id = db::account::get_discord_id_by_account_id(pool, tx.1)
+        let receiver_discord_id = pool.get_discord_id_by_account_id(tx.1)
             .await
             .unwrap_or(None)
             .unwrap_or(0);
@@ -123,22 +123,22 @@ pub async fn get_transaction_list(
 
 /// Get formatted transaction details by UUID
 pub async fn get_transaction_detail(
-    pool: &MySqlPool,
+    pool: &Arc<dyn DatabaseBackend>,
     uuid: &str,
 ) -> Result<TransactionDetailResult, String> {
     // Fetch specific transaction
-    let transaction = db::transaction::get_transaction_by_uuid(pool, uuid)
+    let transaction = pool.get_transaction(uuid)
         .await
         .map_err(|e| format!("Failed to fetch transaction: {}", e))?
         .ok_or("❌ Transaction not found".to_string())?;
 
     // Get sender and receiver Discord IDs
-    let sender_discord_id = db::account::get_discord_id_by_account_id(pool, transaction.0)
+    let sender_discord_id = pool.get_discord_id_by_account_id(transaction.0)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or("Sender not found".to_string())?;
 
-    let receiver_discord_id = db::account::get_discord_id_by_account_id(pool, transaction.1)
+    let receiver_discord_id = pool.get_discord_id_by_account_id(transaction.1)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or("Receiver not found".to_string())?;
@@ -146,7 +146,7 @@ pub async fn get_transaction_detail(
     Ok(TransactionDetailResult {
         sender_discord_id,
         receiver_discord_id,
-        amount: transaction.3,
-        date: transaction.2,
+        amount: transaction.2,
+        date: transaction.3.clone(),
     })
 }

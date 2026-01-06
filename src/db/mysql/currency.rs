@@ -90,6 +90,15 @@ pub async fn get_currencies_by_guild_sorted(
         .await
 }
 
+/// Get all currencies
+pub async fn get_all_currencies(pool: &MySqlPool) -> Result<Vec<(i64, String, String)>, sqlx::Error> {
+    sqlx::query_as::<_, (i64, String, String)>(
+        "SELECT id, name, ticker FROM currency"
+    )
+    .fetch_all(pool)
+    .await
+}
+
 /// Get paginated currencies (all currencies) with optional sorting
 /// sort_by: "oldest" (default) or "recent"
 /// Returns: (currencies, total_count)

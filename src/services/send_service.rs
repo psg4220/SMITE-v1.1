@@ -1,6 +1,5 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
-use crate::db;
 use crate::models::SendResult;
 
 // Maximum value for DECIMAL(24,8): 999,999,999,999,999.99999999
@@ -34,45 +33,45 @@ pub async fn execute_send(
     };
     
     // Get currency by ticker
-    let (currency_id, _currency_name, _) = db::currency::get_currency_by_ticker(&pool, currency_ticker)
+    let (currency_id, _currency_name, _) = pool.get_currency_by_ticker(currency_ticker)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or_else(|| format!("Currency '{}' not found", currency_ticker))?;
     
     // Get sender and receiver account IDs
-    let sender_account_id = db::account::get_account_id(&pool, sender_id, currency_id)
+    let sender_account_id = pool.get_account_id(sender_id, currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or("Sender has no account".to_string())?;
     
     // Get or create receiver account
-    let receiver_account_id = match db::account::get_account_id(&pool, receiver_id, currency_id)
+    let receiver_account_id = match pool.get_account_id(receiver_id, currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
     {
         Some(account_id) => account_id,
         None => {
             // Create account for receiver
-            db::account::create_account(&pool, receiver_id, currency_id)
+            pool.create_account(receiver_id, currency_id)
                 .await
                 .map_err(|e| format!("Failed to create receiver account: {}", e))?
         }
     };
     
     // Verify sender has sufficient balance
-    let sender_balance = db::account::get_account_balance(&pool, sender_id, currency_id)
+    let sender_balance = pool.get_account_balance(sender_id, currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or("Sender has no account".to_string())?;
     
     // Calculate tax
-    let tax_percentage = db::tax::get_tax_percentage(&pool, currency_id)
+    let tax_percentage = pool.get_tax_percentage(currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
-        .unwrap_or(0);
+        .unwrap_or(0.0);
     
-    let tax_amount = if tax_percentage > 0 {
-        (amount * tax_percentage as f64) / 100.0
+    let tax_amount = if tax_percentage > 0.0 {
+        (amount * tax_percentage) / 100.0
     } else {
         0.0
     };
@@ -90,7 +89,7 @@ pub async fn execute_send(
     }
     
     // Check receiver balance won't exceed maximum
-    let receiver_balance = db::account::get_account_balance(&pool, receiver_id, currency_id)
+    let receiver_balance = pool.get_account_balance(receiver_id, currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .unwrap_or(0.0);
@@ -111,24 +110,23 @@ pub async fn execute_send(
     }
     
     // Execute transfer - deduct both amount and tax from sender
-    db::account::update_balance(&pool, sender_account_id, -total_deduction).await
+    pool.update_balance(sender_account_id, -total_deduction).await
         .map_err(|e| format!("Failed to update sender balance: {}", e))?;
     
     // Send only the amount (without tax) to receiver
-    db::account::update_balance(&pool, receiver_account_id, amount).await
+    pool.update_balance(receiver_account_id, amount).await
         .map_err(|e| format!("Failed to update receiver balance: {}", e))?;
     
     // Add tax to tax account if tax was deducted
     if tax_amount > 0.0 {
-        db::tax::add_tax(&pool, currency_id, tax_amount)
+        pool.add_tax(currency_id, tax_amount)
             .await
             .map_err(|e| format!("Failed to record tax: {}", e))?;
     }
     
     // Log transaction
     let transaction_uuid = uuid::Uuid::new_v4().to_string();
-    let _transaction = db::transaction::create_transaction(
-        &pool,
+    pool.create_transaction(
         &transaction_uuid,
         sender_account_id,
         receiver_account_id,

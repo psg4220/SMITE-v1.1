@@ -1,11 +1,9 @@
-use sqlx::mysql::MySqlPool;
-use serenity::model::channel::Message;
-use serenity::prelude::Context;
-use crate::db;
+use std::sync::Arc;
+use crate::db::traits::DatabaseBackend;
 
 /// Set tax percentage for a currency
 pub async fn set_tax(
-    pool: &MySqlPool,
+    pool: &Arc<dyn DatabaseBackend>,
     currency_id: i64,
     tax_percentage: i32,
     ticker: &str,
@@ -16,10 +14,10 @@ pub async fn set_tax(
     }
 
     // Check if tax account exists
-    match db::tax::get_tax_account(pool, currency_id).await {
+    match pool.get_tax_account(currency_id).await {
         Ok(Some(_)) => {
             // Update existing tax account
-            db::tax::set_tax_percentage(pool, currency_id, tax_percentage)
+            pool.set_tax_percentage(currency_id, tax_percentage as f64)
                 .await
                 .map_err(|e| format!("Database error: {}", e))?;
             
@@ -27,7 +25,7 @@ pub async fn set_tax(
         },
         Ok(None) => {
             // Create new tax account
-            db::tax::create_tax_account(pool, currency_id, tax_percentage)
+            pool.create_tax_account(currency_id, tax_percentage)
                 .await
                 .map_err(|e| format!("Database error: {}", e))?;
             
@@ -40,19 +38,17 @@ pub async fn set_tax(
 }
 
 /// Collect tax from a currency's tax account
-pub async fn collect_tax(
-    pool: &MySqlPool,
+pub async fn collect_tax_amount(
+    pool: &Arc<dyn DatabaseBackend>,
     user_id: i64,
     currency_id: i64,
     amount: Option<String>,
 ) -> Result<String, String> {
-    // Get tax account
-    let tax_account = db::tax::get_tax_account(pool, currency_id)
+    // Get tax balance
+    let current_balance = pool.get_total_tax_balance(currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
-        .ok_or("❌ No tax account found for this currency")?;
-
-    let current_balance = tax_account.2;
+        .unwrap_or(0.0);
 
     if current_balance <= 0.0 {
         return Err("❌ No taxes to collect".to_string());
@@ -82,12 +78,12 @@ pub async fn collect_tax(
     }
 
     // Collect tax
-    let collected = db::tax::collect_tax(pool, currency_id, collect_amount)
+    let collected = pool.collect_tax(currency_id, collect_amount)
         .await
         .map_err(|e| format!("Database error: {}", e))?;
 
     // Add collected amount to user's account for this currency
-    db::account::add_balance(pool, user_id, currency_id, collected)
+    pool.add_balance(user_id, currency_id, collected)
         .await
         .map_err(|e| format!("Failed to add tax to account: {}", e))?;
 
@@ -99,26 +95,29 @@ pub async fn collect_tax(
 
 /// Get tax information for a currency
 pub async fn get_tax_info(
-    pool: &MySqlPool,
+    pool: &Arc<dyn DatabaseBackend>,
     currency_id: i64,
 ) -> Result<String, String> {
-    match db::tax::get_tax_account(pool, currency_id).await {
-        Ok(Some(tax_account)) => {
-            let balance = tax_account.2;
-            let percentage = tax_account.3;
-            
+    let percentage = pool.get_tax_percentage(currency_id)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?;
+    
+    let balance = pool.get_total_tax_balance(currency_id)
+        .await
+        .map_err(|e| format!("Database error: {}", e))?
+        .unwrap_or(0.0);
+
+    match percentage {
+        Some(pct) => {
             Ok(format!(
                 "💰 **Tax Account Info**\n\
                  Percentage: **{}%**\n\
                  Balance: **{:.2}**",
-                percentage, balance
+                pct, balance
             ))
         },
-        Ok(None) => {
+        None => {
             Err("❌ No tax account set for this currency".to_string())
-        },
-        Err(e) => {
-            Err(format!("Database error: {}", e))
         }
     }
 }

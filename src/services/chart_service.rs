@@ -1,7 +1,7 @@
-use sqlx::mysql::MySqlPool;
+use std::sync::Arc;
 use plotters::prelude::*;
 use chrono::{DateTime, Utc, NaiveDateTime, Duration};
-use crate::db;
+use crate::db::DatabaseBackend;
 use crate::models::chart::PricePoint;
 
 /// Parse timeframe string to duration
@@ -25,17 +25,17 @@ pub fn parse_chart_timeframe(timeframe: &str) -> Result<Option<Duration>, String
 
 /// Get all price logs for a currency pair sorted by date
 pub async fn get_price_history(
-    pool: &MySqlPool,
+    pool: &Arc<dyn DatabaseBackend>,
     base_ticker: &str,
     quote_ticker: &str,
 ) -> Result<Vec<PricePoint>, String> {
     // Get currency IDs by tickers
-    let base_currency = db::currency::get_currency_by_ticker(pool, base_ticker)
+    let base_currency = pool.get_currency_by_ticker(base_ticker)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or(format!("❌ Currency '{}' not found", base_ticker))?;
 
-    let quote_currency = db::currency::get_currency_by_ticker(pool, quote_ticker)
+    let quote_currency = pool.get_currency_by_ticker(quote_ticker)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or(format!("❌ Currency '{}' not found", quote_ticker))?;
@@ -45,12 +45,12 @@ pub async fn get_price_history(
 
     // Get the canonical order
     let (canonical_base_id, canonical_quote_id, is_reversed) = 
-        db::tradelog::normalize_pair(pool, base_currency_id, quote_currency_id)
+        pool.normalize_pair(base_currency_id, quote_currency_id)
             .await
             .map_err(|e| format!("Database error: {}", e))?;
 
     // Fetch price logs with timestamps for this pair
-    let logs = db::tradelog::get_price_logs_with_timestamps(pool, canonical_base_id, canonical_quote_id)
+    let logs = pool.get_price_logs_with_timestamps(canonical_base_id, canonical_quote_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?;
 
@@ -88,7 +88,7 @@ pub async fn get_price_history(
 
 /// Get price history filtered by timeframe
 pub async fn get_price_history_with_timeframe(
-    pool: &MySqlPool,
+    pool: &Arc<dyn DatabaseBackend>,
     base_ticker: &str,
     quote_ticker: &str,
     timeframe: &str,
@@ -112,7 +112,7 @@ pub async fn get_price_history_with_timeframe(
 
 /// Generate a price chart image as PNG bytes
 pub async fn generate_chart(
-    pool: &MySqlPool,
+    pool: &Arc<dyn DatabaseBackend>,
     base_ticker: &str,
     quote_ticker: &str,
     width: u32,
@@ -212,7 +212,7 @@ pub async fn generate_chart(
 
 /// Generate a price chart with timeframe filtering
 pub async fn generate_chart_with_timeframe(
-    pool: &MySqlPool,
+    pool: &Arc<dyn DatabaseBackend>,
     base_ticker: &str,
     quote_ticker: &str,
     timeframe: &str,

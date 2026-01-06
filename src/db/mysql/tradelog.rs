@@ -141,16 +141,27 @@ pub async fn get_price_logs_in_range(
     quote_currency_id: i64,
     start_date: &str,
     end_date: &str,
-) -> Result<Vec<(i64, i64, i64, f64)>, sqlx::Error> {
-    sqlx::query_as::<_, (i64, i64, i64, f64)>(
-        "SELECT id, base_currency_id, quote_currency_id, price FROM tradelog WHERE base_currency_id = ? AND quote_currency_id = ? AND date_created BETWEEN ? AND ? ORDER BY date_created DESC"
+) -> Result<Vec<(i64, f64, String)>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT id, CAST(price AS CHAR) as price_str, DATE_FORMAT(date_created, '%Y-%m-%d %H:%i:%s') as date_str FROM tradelog WHERE base_currency_id = ? AND quote_currency_id = ? AND date_created BETWEEN ? AND ? ORDER BY date_created ASC"
     )
     .bind(base_currency_id)
     .bind(quote_currency_id)
     .bind(start_date)
     .bind(end_date)
     .fetch_all(pool)
-    .await
+    .await?;
+
+    Ok(rows.into_iter()
+        .filter_map(|row| {
+            use sqlx::Row;
+            let id: i64 = row.get(0);
+            let price_str: String = row.get(1);
+            let date_str: String = row.get(2);
+            let price = price_str.parse::<f64>().ok()?;
+            Some((id, price, date_str))
+        })
+        .collect())
 }
 
 /// Calculate VWAP (Volume Weighted Average Price) for a currency pair

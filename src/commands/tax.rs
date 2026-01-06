@@ -1,5 +1,7 @@
+use std::sync::Arc;
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
+use crate::db::traits::DatabaseBackend;
 use crate::services::tax_service;
 use tracing::debug;
 
@@ -58,7 +60,7 @@ pub async fn execute(ctx: &Context, msg: &Message, args: &[&str]) -> Result<(), 
 async fn execute_set(
     ctx: &Context,
     msg: &Message,
-    pool: &sqlx::mysql::MySqlPool,
+    pool: &Arc<dyn DatabaseBackend>,
     args: &[&str],
 ) -> Result<(), String> {
     if args.len() < 2 {
@@ -73,7 +75,7 @@ async fn execute_set(
         .map_err(|_| "❌ Percentage must be a valid integer (0-100)".to_string())?;
 
     // Get currency by ticker with guild_id
-    let currency = crate::db::currency::get_currency_by_ticker_with_guild(pool, &ticker)
+    let currency = pool.get_currency_by_ticker_with_guild(&ticker)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or(format!("❌ Currency '{}' not found", ticker))?;
@@ -102,7 +104,7 @@ async fn execute_set(
 async fn execute_collect(
     ctx: &Context,
     msg: &Message,
-    pool: &sqlx::mysql::MySqlPool,
+    pool: &Arc<dyn DatabaseBackend>,
     args: &[&str],
 ) -> Result<(), String> {
     if args.is_empty() {
@@ -113,7 +115,7 @@ async fn execute_collect(
     let amount = args.get(1).copied();
 
     // Get currency by ticker with guild_id
-    let currency = crate::db::currency::get_currency_by_ticker_with_guild(pool, &ticker)
+    let currency = pool.get_currency_by_ticker_with_guild(&ticker)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or(format!("❌ Currency '{}' not found", ticker))?;
@@ -123,7 +125,7 @@ async fn execute_collect(
     let collector_id = msg.author.id.get() as i64;
 
     // Collect tax
-    let response = tax_service::collect_tax(pool, collector_id, currency_id, amount.map(|s| s.to_string())).await?;
+    let response = tax_service::collect_tax_amount(pool, collector_id, currency_id, amount.map(|s| s.to_string())).await?;
 
     let embed = serenity::builder::CreateEmbed::default()
         .title("💰 Tax Collected")
@@ -142,7 +144,7 @@ async fn execute_collect(
 async fn execute_info(
     ctx: &Context,
     msg: &Message,
-    pool: &sqlx::mysql::MySqlPool,
+    pool: &Arc<dyn DatabaseBackend>,
     args: &[&str],
 ) -> Result<(), String> {
     if args.is_empty() {
@@ -152,7 +154,7 @@ async fn execute_info(
     let ticker = args[0].to_uppercase();
 
     // Get currency by ticker
-    let currency = crate::db::currency::get_currency_by_ticker(pool, &ticker)
+    let currency = pool.get_currency_by_ticker(&ticker)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or(format!("❌ Currency '{}' not found", ticker))?;

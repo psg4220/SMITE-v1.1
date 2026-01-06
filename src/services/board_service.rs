@@ -30,7 +30,7 @@ pub async fn list_currencies(ctx: &Context, msg: &Message, args: &[&str]) -> Res
     }
 
     // Fetch paginated currencies from database (all currencies)
-    let (currencies, total_count) = crate::db::currency::get_currencies_paginated(&pool, sort_by, page_num, ITEMS_PER_PAGE)
+    let (currencies, total_count) = pool.get_currencies_paginated(sort_by, page_num, ITEMS_PER_PAGE)
         .await
         .map_err(|e| format!("Database error: {}", e))?;
 

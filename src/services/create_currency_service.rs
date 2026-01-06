@@ -1,6 +1,5 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
-use crate::db;
 use crate::blacklist;
 use crate::models::CreateCurrencyResult;
 
@@ -58,7 +57,7 @@ pub async fn execute_create_currency(
     };
 
     // Check if currency already exists in this guild
-    match db::currency::get_currency_by_guild(&pool, guild_id as i64).await {
+    match pool.get_currency_by_guild(guild_id as i64).await {
         Ok(Some(_)) => {
             return Err(
                 "This guild already has a currency. Only one currency per guild is allowed."
@@ -72,7 +71,7 @@ pub async fn execute_create_currency(
     }
 
     // Create the currency
-    let currency_id = db::currency::create_currency(&pool, guild_id as i64, name, &ticker_upper)
+    let currency_id = pool.create_currency(guild_id as i64, name, &ticker_upper)
         .await
         .map_err(|e| format!("Failed to create currency: {}", e))?;
 

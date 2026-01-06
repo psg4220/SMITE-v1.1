@@ -3,7 +3,7 @@ use serenity::model::channel::Message;
 use serenity::model::gateway::Ready;
 use serenity::prelude::*;
 use std::time::Instant;
-use sqlx::mysql::MySqlPool;
+use std::sync::Arc;
 use tracing::{info, warn, error, debug};
 use tracing_subscriber::EnvFilter;
 
@@ -26,7 +26,7 @@ impl TypeMapKey for BotData {
 struct DatabasePool;
 
 impl TypeMapKey for DatabasePool {
-    type Value = MySqlPool;
+    type Value = Arc<dyn db::DatabaseBackend>;
 }
 
 struct CommandPrefix;

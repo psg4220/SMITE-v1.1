@@ -1,7 +1,6 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
 use serenity::model::prelude::UserId;
-use crate::db;
 use crate::models::{SwapResult, AcceptDenyResult, SwapListResult};
 use uuid::Uuid;
 
@@ -27,7 +26,7 @@ pub async fn execute_swap(
     };
     
     // Get maker's currency by ticker
-    let maker_currency = db::currency::get_currency_by_ticker(&pool, maker_ticker)
+    let maker_currency = pool.get_currency_by_ticker(maker_ticker)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or(format!("Currency {} not found", maker_ticker))?;
@@ -35,25 +34,25 @@ pub async fn execute_swap(
     let maker_currency_name = maker_currency.2;
     
     // Get maker's account ID (must exist)
-    let maker_account_id = db::account::get_account_id(&pool, maker_id, maker_currency_id)
+    let maker_account_id = pool.get_account_id(maker_id, maker_currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or("Maker has no account for this currency".to_string())?;
     
     // Verify maker has sufficient balance
-    let maker_balance = db::account::get_account_balance(&pool, maker_id, maker_currency_id)
+    let maker_balance = pool.get_account_balance(maker_id, maker_currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or("Maker has no account".to_string())?;
     
     // Calculate tax on maker's amount
-    let maker_tax_percentage = db::tax::get_tax_percentage(&pool, maker_currency_id)
+    let maker_tax_percentage = pool.get_tax_percentage(maker_currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
-        .unwrap_or(0);
+        .unwrap_or(0.0);
     
-    let maker_tax_amount = if maker_tax_percentage > 0 {
-        (maker_amount * maker_tax_percentage as f64) / 100.0
+    let maker_tax_amount = if maker_tax_percentage > 0.0 {
+        (maker_amount * maker_tax_percentage) / 100.0
     } else {
         0.0
     };
@@ -70,7 +69,7 @@ pub async fn execute_swap(
     // If taker is specified, this is a targeted swap
     if let (Some(taker_id_val), Some(taker_amount_val), Some(taker_ticker_val)) = (taker_id, taker_amount, taker_ticker) {
         // Get taker's currency by ticker
-        let taker_currency = db::currency::get_currency_by_ticker(&pool, taker_ticker_val)
+        let taker_currency = pool.get_currency_by_ticker(taker_ticker_val)
             .await
             .map_err(|e| format!("Database error: {}", e))?
             .ok_or(format!("Currency {} not found", taker_ticker_val))?;
@@ -78,19 +77,19 @@ pub async fn execute_swap(
         let taker_currency_name = taker_currency.2;
         
         // Get or create taker account for their currency
-        let taker_account_id = db::account::get_account_id(&pool, taker_id_val, taker_currency_id).await
+        let taker_account_id = pool.get_account_id(taker_id_val, taker_currency_id).await
             .map_err(|e| format!("Database error: {}", e))?;
         
         let taker_account_id_final = if let Some(id) = taker_account_id {
             id
         } else {
-            db::account::create_account(&pool, taker_id_val, taker_currency_id)
+            pool.create_account(taker_id_val, taker_currency_id)
                 .await
                 .map_err(|e| format!("Failed to create taker account: {}", e))?
         };
         
         // Verify taker has sufficient balance in their currency
-        let taker_balance = db::account::get_account_balance(&pool, taker_id_val, taker_currency_id)
+        let taker_balance = pool.get_account_balance(taker_id_val, taker_currency_id)
             .await
             .map_err(|e| format!("Database error: {}", e))?
             .ok_or("Taker has no account".to_string())?;
@@ -100,8 +99,7 @@ pub async fn execute_swap(
         }
         
         // Create the targeted swap (deduction and swap creation handled atomically by procedure)
-        let swap_id = db::swap::create_swap(
-            &pool,
+        let swap_id = pool.create_swap_targeted(
             maker_account_id,
             maker_currency_id,
             taker_currency_id,
@@ -113,10 +111,10 @@ pub async fn execute_swap(
         
         // Deduct tax from maker if applicable
         if maker_tax_amount > 0.0 {
-            db::account::update_balance(&pool, maker_account_id, -maker_tax_amount).await
+            pool.update_balance(maker_account_id, -maker_tax_amount).await
                 .map_err(|e| format!("Failed to deduct maker tax: {}", e))?;
             
-            db::tax::add_tax(&pool, maker_currency_id, maker_tax_amount)
+            pool.add_tax(maker_currency_id, maker_tax_amount)
                 .await
                 .map_err(|e| format!("Failed to record tax: {}", e))?;
         }
@@ -145,7 +143,7 @@ pub async fn execute_swap(
         }
         
         // Store the message ID for later editing
-        let _ = db::swap::store_swap_message(&pool, swap_id, msg.channel_id.get() as i64, msg.id.get() as i64).await;
+        let _ = pool.store_swap_message(swap_id, msg.channel_id.get() as i64, msg.id.get() as i64).await;
         
         Ok(SwapResult {
             swap_id,
@@ -163,7 +161,7 @@ pub async fn execute_swap(
         let taker_ticker_str = taker_ticker.ok_or("Taker currency required for open swap".to_string())?;
         let taker_amount_val = taker_amount.ok_or("Taker amount required for open swap".to_string())?;
         
-        let taker_currency = db::currency::get_currency_by_ticker(&pool, taker_ticker_str)
+        let taker_currency = pool.get_currency_by_ticker(taker_ticker_str)
             .await
             .map_err(|e| format!("Database error: {}", e))?
             .ok_or(format!("Currency {} not found", taker_ticker_str))?;
@@ -171,8 +169,7 @@ pub async fn execute_swap(
         let taker_currency_name = taker_currency.2;
         
         // Create the open swap with both currencies and amounts
-        let swap_id = db::swap::create_swap_open(
-            &pool,
+        let swap_id = pool.create_swap_open(
             maker_account_id,
             maker_currency_id,
             taker_currency_id,
@@ -183,10 +180,10 @@ pub async fn execute_swap(
         
         // Deduct tax from maker if applicable
         if maker_tax_amount > 0.0 {
-            db::account::update_balance(&pool, maker_account_id, -maker_tax_amount).await
+            pool.update_balance(maker_account_id, -maker_tax_amount).await
                 .map_err(|e| format!("Failed to deduct maker tax: {}", e))?;
             
-            db::tax::add_tax(&pool, maker_currency_id, maker_tax_amount)
+            pool.add_tax(maker_currency_id, maker_tax_amount)
                 .await
                 .map_err(|e| format!("Failed to record tax: {}", e))?;
         }
@@ -222,7 +219,7 @@ pub async fn accept_swap(
     if let Some(id) = swap_id {
         // Accept a specific swap by ID
         // Get swap details: (id, maker_id, taker_id, maker_currency_id, taker_currency_id, maker_amount, taker_amount, status)
-        let swap_details = db::swap::get_swap_by_id(&pool, id).await
+        let swap_details = pool.get_swap_by_id(id).await
             .map_err(|e| format!("Failed to fetch swap: {}", e))?
             .ok_or("Swap not found".to_string())?;
         
@@ -247,13 +244,13 @@ pub async fn accept_swap(
         let taker_amount = swap_details.6;
         
         // Get the actual Discord user IDs from account IDs
-        let maker_discord_id = db::account::get_discord_id_by_account_id(&pool, maker_account_id)
+        let maker_discord_id = pool.get_discord_id_by_account_id(maker_account_id)
             .await
             .map_err(|e| format!("Database error: {}", e))?
             .ok_or("Maker account not found".to_string())?;
         
         let taker_discord_id = if let Some(taker_account_id) = taker_id_existing {
-            db::account::get_discord_id_by_account_id(&pool, taker_account_id)
+            pool.get_discord_id_by_account_id(taker_account_id)
                 .await
                 .map_err(|e| format!("Database error: {}", e))?
                 .ok_or("Taker account not found".to_string())?
@@ -279,17 +276,17 @@ pub async fn accept_swap(
         let uuid2 = Uuid::new_v4().to_string();
         
         // Call procedure to accept swap atomically (handles all balance deductions, credits, and transactions)
-        db::swap::accept_swap(&pool, id, user_id, &uuid1, &uuid2)
+        pool.accept_swap(id, user_id, &uuid1, &uuid2)
             .await
             .map_err(|e| e.to_string())?;
         
         // Get currency tickers
-        let maker_currency_ticker = db::currency::get_currency_by_id(&pool, maker_currency_id)
+        let maker_currency_ticker = pool.get_currency_by_id(maker_currency_id)
             .await
             .unwrap_or(None)
             .map(|c| c.3)
             .unwrap_or_else(|| "???".to_string());
-        let taker_currency_ticker = db::currency::get_currency_by_id(&pool, taker_currency_id)
+        let taker_currency_ticker = pool.get_currency_by_id(taker_currency_id)
             .await
             .unwrap_or(None)
             .map(|c| c.3)
@@ -311,7 +308,7 @@ pub async fn accept_swap(
         };
         
         // Log the trading price to tradelog
-        let _ = db::tradelog::add_price_log(&pool, base_currency_id, quote_currency_id, price)
+        let _ = pool.add_price_log(base_currency_id, quote_currency_id, price)
             .await
             .map_err(|e| format!("Failed to log price: {}", e));
         
@@ -347,7 +344,7 @@ pub async fn deny_swap(
     
     if let Some(id) = swap_id {
         // Deny specific swap
-        let swap_details = db::swap::get_swap_by_id(&pool, id).await
+        let swap_details = pool.get_swap_by_id(id).await
             .map_err(|e| format!("Failed to fetch swap: {}", e))?
             .ok_or("Swap not found".to_string())?;
         
@@ -367,13 +364,13 @@ pub async fn deny_swap(
         let taker_id_existing = swap_details.2;
         
         // Get the actual Discord user IDs from account IDs
-        let maker_discord_id = db::account::get_discord_id_by_account_id(&pool, maker_account_id)
+        let maker_discord_id = pool.get_discord_id_by_account_id(maker_account_id)
             .await
             .map_err(|e| format!("Database error: {}", e))?
             .ok_or("Maker account not found".to_string())?;
         
         let taker_discord_id = if let Some(taker_account_id) = taker_id_existing {
-            db::account::get_discord_id_by_account_id(&pool, taker_account_id)
+            pool.get_discord_id_by_account_id(taker_account_id)
                 .await
                 .map_err(|e| format!("Database error: {}", e))?
                 .ok_or("Taker account not found".to_string())?
@@ -392,7 +389,7 @@ pub async fn deny_swap(
             return Err(error_msg);
         }
         // Call procedure to cancel/deny swap atomically (handles refunds)
-        db::swap::cancel_swap(&pool, id)
+        pool.cancel_swap(id)
             .await
             .map_err(|e| format!("Failed to deny swap: {}", e))?;
         
@@ -403,12 +400,12 @@ pub async fn deny_swap(
         // Get currency names
         let maker_currency_id = swap_details.3;
         let taker_currency_id = swap_details.4;
-        let maker_currency_ticker = db::currency::get_currency_by_id(&pool, maker_currency_id)
+        let maker_currency_ticker = pool.get_currency_by_id(maker_currency_id)
             .await
             .unwrap_or(None)
             .map(|c| c.3)
             .unwrap_or_else(|| "???".to_string());
-        let taker_currency_ticker = db::currency::get_currency_by_id(&pool, taker_currency_id)
+        let taker_currency_ticker = pool.get_currency_by_id(taker_currency_id)
             .await
             .unwrap_or(None)
             .map(|c| c.3)
@@ -448,7 +445,7 @@ pub async fn get_swap_status(
     };
     
     // Fetch swap details
-    let swap_details = db::swap::get_swap_by_id(&pool, swap_id).await
+    let swap_details = pool.get_swap_by_id(swap_id).await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or("Swap not found".to_string())?;
     
@@ -461,13 +458,13 @@ pub async fn get_swap_status(
     let status = swap_details.7.as_str();
     
     // Get Discord IDs from account IDs
-    let maker_discord_id = db::account::get_discord_id_by_account_id(&pool, maker_account_id)
+    let maker_discord_id = pool.get_discord_id_by_account_id(maker_account_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or("Maker account not found".to_string())?;
     
     let taker_discord_id = if let Some(taker_acc_id) = taker_account_id {
-        db::account::get_discord_id_by_account_id(&pool, taker_acc_id)
+        pool.get_discord_id_by_account_id(taker_acc_id)
             .await
             .map_err(|e| format!("Database error: {}", e))?
             .ok_or("Taker account not found".to_string())?
@@ -476,13 +473,13 @@ pub async fn get_swap_status(
     };
     
     // Get currency tickers
-    let maker_ticker = db::currency::get_currency_by_id(&pool, maker_currency_id)
+    let maker_ticker = pool.get_currency_by_id(maker_currency_id)
         .await
         .unwrap_or(None)
         .map(|c| c.3)
         .unwrap_or_else(|| "???".to_string());
     
-    let taker_ticker = db::currency::get_currency_by_id(&pool, taker_currency_id)
+    let taker_ticker = pool.get_currency_by_id(taker_currency_id)
         .await
         .unwrap_or(None)
         .map(|c| c.3)
@@ -605,8 +602,7 @@ pub async fn get_swaps_list(
     };
     
     // Call database function
-    let (raw_swaps, total_count) = db::swap::get_swaps_paginated(
-        &pool,
+    let (raw_swaps, total_count) = pool.get_swaps_paginated(
         page,
         page_size,
         sort_by_validated,

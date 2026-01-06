@@ -1,5 +1,5 @@
-use sqlx::mysql::MySqlPool;
-use crate::db;
+use std::sync::Arc;
+use crate::db::traits::DatabaseBackend;
 use crate::models::PriceResult;
 
 /// Convert user-friendly timeframe string to MySQL INTERVAL format
@@ -31,7 +31,7 @@ pub fn parse_timeframe(timeframe: &str) -> Result<String, String> {
 
 /// Get price and VWAP for a currency pair
 pub async fn get_price(
-    pool: &MySqlPool,
+    pool: &Arc<dyn DatabaseBackend>,
     base_ticker: &str,
     quote_ticker: &str,
     timeframe_arg: &str,
@@ -46,12 +46,12 @@ pub async fn get_price(
     }
 
     // Get currency IDs by tickers
-    let base_currency = db::currency::get_currency_by_ticker(pool, base_ticker)
+    let base_currency = pool.get_currency_by_ticker(base_ticker)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or(format!("❌ Currency '{}' not found", base_ticker))?;
 
-    let quote_currency = db::currency::get_currency_by_ticker(pool, quote_ticker)
+    let quote_currency = pool.get_currency_by_ticker(quote_ticker)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or(format!("❌ Currency '{}' not found", quote_ticker))?;
@@ -61,7 +61,7 @@ pub async fn get_price(
 
     // Get the canonical order
     let (canonical_base_id, canonical_quote_id, is_reversed) = 
-        db::tradelog::normalize_pair(pool, base_currency_id, quote_currency_id)
+        pool.normalize_pair(base_currency_id, quote_currency_id)
             .await
             .map_err(|e| format!("Database error: {}", e))?;
 
@@ -69,11 +69,11 @@ pub async fn get_price(
     let mysql_timeframe = parse_timeframe(timeframe_arg)?;
 
     // Get the latest price
-    let price_result = db::tradelog::get_latest_price_for_pair(pool, canonical_base_id, canonical_quote_id)
+    let price_result = pool.get_latest_price(canonical_base_id, canonical_quote_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?;
 
-    let (canonical_price, _) = price_result
+    let canonical_price = price_result
         .ok_or("❌ No trading history found for this pair. Please execute a swap first.")?;
 
     // Calculate the price for the requested order
@@ -84,7 +84,7 @@ pub async fn get_price(
     };
 
     // Calculate VWAP with the specified timeframe
-    let vwap_result = db::tradelog::calculate_vwap(pool, canonical_base_id, canonical_quote_id, &mysql_timeframe)
+    let vwap_result = pool.calculate_vwap(canonical_base_id, canonical_quote_id, &mysql_timeframe)
         .await
         .map_err(|e| format!("Database error: {}", e))?;
 
@@ -108,11 +108,11 @@ pub async fn get_price(
 
 /// Get latest prices with optional filtering by base or quote ticker
 pub async fn get_price_list(
-    pool: &MySqlPool,
+    pool: &Arc<dyn DatabaseBackend>,
     filter_base: Option<&str>,
     filter_quote: Option<&str>,
 ) -> Result<Vec<(String, String, f64)>, String> {
-    db::tradelog::get_latest_prices_with_filter(pool, filter_base, filter_quote)
+    pool.get_latest_prices_with_filter(filter_base, filter_quote)
         .await
         .map_err(|e| format!("Database error: {}", e))
 }

@@ -1,6 +1,5 @@
 use serenity::model::channel::Message;
 use serenity::prelude::Context;
-use crate::db;
 use crate::models::CurrencyInfo;
 
 pub async fn execute_info(
@@ -17,7 +16,7 @@ pub async fn execute_info(
     };
 
     // Get currency by ticker
-    let currency = db::currency::get_currency_by_ticker(&pool, ticker)
+    let currency = pool.get_currency_by_ticker(ticker)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .ok_or(format!("❌ Currency '{}' not found", ticker))?;
@@ -27,19 +26,19 @@ pub async fn execute_info(
     let currency_ticker = currency.2;
 
     // Get total balance across all accounts
-    let account_balance_total = db::account::get_total_balance(&pool, currency_id)
+    let account_balance_total = pool.get_total_balance(currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .unwrap_or(0.0);
 
     // Get total tax balance
-    let tax_balance_total = db::tax::get_total_tax_balance(&pool, currency_id)
+    let tax_balance_total = pool.get_total_tax_balance(currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .unwrap_or(0.0);
 
     // Get total maker amounts in pending/open swaps
-    let swap_maker_total = db::swap::get_total_swap_maker_amount(&pool, currency_id)
+    let swap_maker_total = pool.get_total_swap_maker_amount(currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .unwrap_or(0.0);
@@ -48,7 +47,7 @@ pub async fn execute_info(
     let total_in_circulation = account_balance_total + tax_balance_total + swap_maker_total;
 
     // Get creation date
-    let date_created = db::currency::get_currency_date(&pool, currency_id)
+    let date_created = pool.get_currency_date(currency_id)
         .await
         .map_err(|e| format!("Database error: {}", e))?
         .unwrap_or_else(|| "Unknown".to_string());
